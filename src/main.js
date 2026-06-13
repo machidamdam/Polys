@@ -5,7 +5,7 @@ const config = {
   type: Phaser.AUTO,
   width: window.innerWidth,
   height: window.innerHeight,
-  backgroundColor: '#1a0a2e',
+  backgroundColor: '#a8af60',   // matches grass so tile gaps are invisible
   pixelArt: true,
   antialias: false,
   roundPixels: true,

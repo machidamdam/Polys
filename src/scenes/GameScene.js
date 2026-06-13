@@ -141,7 +141,8 @@ export default class GameScene extends Phaser.Scene {
   }
 
   apply() {
-    this.world.setPosition(this.camX, this.camY);
+    // Round to nearest pixel to prevent sub-pixel tile gaps
+    this.world.setPosition(Math.round(this.camX), Math.round(this.camY));
     this.world.setScale(this.zoom);
   }
 
