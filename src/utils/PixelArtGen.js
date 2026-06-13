@@ -28,7 +28,8 @@ const C = {
 export function generateTextures(scene) {
   for (let i = 0; i < 4; i++) makeGrass(scene, `grass${i}`, i);
   makeSand(scene);
-  makeMarble(scene);
+  makeMarbleGround(scene, 'marble0', 0);
+  makeMarbleGround(scene, 'marble1', 1);
   for (let f = 0; f < 3; f++) makeWater(scene, `sea${f}`, f, true);
   for (let f = 0; f < 3; f++) makeWater(scene, `shal${f}`, f, false);
   for (let f = 0; f < 2; f++) makeFoam(scene, `foam${f}`, f);
@@ -82,113 +83,81 @@ function makeSand(scene) {
   tex.refresh();
 }
 
-// ── HILL — a whole raised plateau as ONE cohesive landform ──────────────────
-// topKind: 'grass' (green plateau) | 'quarry' (pale marble bedrock)
-export function makeHillTexture(scene, key, radTiles, topKind, seed) {
-  const lift = 24;                              // plateau height in px
-  const rx = radTiles * TILE - 4;
-  const ry = Math.round(rx * 0.66);            // flattened for top-down view
-  const W = rx * 2 + 8;
-  const H = ry * 2 + lift + 8;
-  const { tex, ctx } = canvas(scene, key, W, H);
-  const cx = W / 2;
-  const footCy = H - ry - 4;                    // ellipse centre (footprint)
-
-  const top = topKind === 'quarry'
-    ? { base: '#d8cfb6', hi: '#ece4cf', lo: '#bdb398', edge: '#8f8568' }
-    : { base: '#9eb654', hi: '#bccb74', lo: '#7e8c42', edge: '#586030' };
-  const cliff = topKind === 'quarry'
-    ? { hi: '#e4dcc6', mid: '#cabf9f', lo: '#a89c7c', out: '#6f6450' }
-    : { hi: '#b6ab8e', mid: '#94886c', lo: '#6c624e', out: '#473d2c' };
-
-  const r = rng(seed);
-
-  // soft ground shadow under the hill
-  ctx.fillStyle = 'rgba(40,35,15,0.18)';
-  ctx.beginPath();
-  ctx.ellipse(cx + 4, footCy + ry * 0.55, rx * 0.96, ry * 0.42, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  for (let x = 0; x < W; x++) {
-    const nx = (x - cx) / rx;
-    if (Math.abs(nx) >= 1) continue;
-    const wob = 1 + 0.05 * Math.sin(x * 0.22) + 0.03 * Math.sin(x * 0.10 + 1.3);
-    const hh = ry * Math.sqrt(1 - nx * nx) * wob;
-    const footTop = footCy - hh, footBot = footCy + hh;
-    const topTop = footTop - lift, topBot = footBot - lift;
-
-    // CLIFF FACE (front + wrapping sides)
-    for (let y = Math.round(topBot); y < Math.round(footBot); y++) {
-      let c = cliff.mid;
-      if ((y % 5) === 0) c = cliff.lo;            // horizontal strata
-      else if ((y % 5) === 1) c = cliff.hi;
-      if (nx > 0.35) c = cliff.lo;                // right side in shade
-      else if (nx < -0.45) c = cliff.hi;          // left side lit
-      px(ctx, x, y, 1, 1, c);
-    }
-    // base outline + talus shadow
-    px(ctx, x, Math.round(footBot), 1, 1, cliff.out);
-
-    // TOP SURFACE
-    for (let y = Math.round(topTop); y < Math.round(topBot); y++) {
-      let c = top.base;
-      const d = (y - topTop) / Math.max(1, (topBot - topTop));
-      if (d < 0.22) c = top.hi;                   // sunlit back of plateau
-      else if (d > 0.86) c = top.lo;              // shade near front lip
-      px(ctx, x, y, 1, 1, c);
-    }
-    // front lip: bright edge then dark drop
-    px(ctx, x, Math.round(topBot) - 1, 1, 1, top.hi);
-    px(ctx, x, Math.round(topBot),     1, 1, top.edge);
-    // top contour rim
-    px(ctx, x, Math.round(topTop), 1, 1, top.edge);
+// ── MARBLE GROUND — flat whitish-grey rock patch (as in Zeus) ───────────────
+function makeMarbleGround(scene, key, variant) {
+  const { tex, ctx } = canvas(scene, key, TILE, TILE);
+  const base = '#d6d4ca', hi = '#e8e6dc', lo = '#bcbab0', vein = '#a8a89e';
+  const r = rng(404 + variant * 53);
+  px(ctx, 0, 0, TILE, TILE, base);
+  // subtle mottling
+  for (let i = 0; i < 14; i++) {
+    const x = (r() * TILE) | 0, y = (r() * TILE) | 0;
+    px(ctx, x, y, 2, 1, r() > 0.5 ? hi : lo);
   }
-
-  // top-surface detail
-  for (let i = 0; i < radTiles * 14; i++) {
-    const ang = r() * Math.PI * 2, dd = Math.sqrt(r());
-    const x = Math.round(cx + Math.cos(ang) * rx * 0.82 * dd);
-    const y = Math.round((footCy - lift) + Math.sin(ang) * ry * 0.7 * dd);
-    if (topKind === 'quarry') {
-      px(ctx, x, y, 1, 1, r() > 0.5 ? top.hi : top.lo);
-      if (r() > 0.85) px(ctx, x, y, 2, 1, '#b8ad94'); // vein fleck
-    } else {
-      if (r() > 0.5) { px(ctx, x, y, 1, 2, top.lo); px(ctx, x + 1, y + 1, 1, 1, top.hi); }
-      else px(ctx, x, y, 1, 1, top.hi);
-    }
+  // faint marble veins (thin diagonal grey streaks)
+  for (let v = 0; v < 2; v++) {
+    let x = (r() * TILE) | 0, y = (r() * 8) | 0;
+    const dx = r() > 0.5 ? 1 : -1;
+    while (y < TILE) { px(ctx, x, y, 1, 1, vein); x += dx * (r() > 0.6 ? 1 : 0); y += 1; }
   }
   tex.refresh();
-  // origin so the plateau-top centre lands on the hill's map position
-  return { W, H, originY: (footCy - lift) / H };
 }
 
-// ── MARBLE OUTCROP — natural white marble boulder with grey veins ───────────
-function makeMarble(scene) {
-  const W = 34, H = 26;
-  const { tex, ctx } = canvas(scene, 'marble', W, H);
-  const white = '#f2ecde', mid = '#dcd2bc', vein = '#b8ad94', shade = '#a89c80';
-  ctx.fillStyle = 'rgba(70,60,20,0.20)';
-  ctx.beginPath(); ctx.ellipse(W / 2, H - 3, 13, 3, 0, 0, Math.PI * 2); ctx.fill();
-  // lumpy boulder silhouette, row by row
-  const rows = [[13,8],[10,15],[7,21],[5,25],[4,26],[5,24],[7,20],[10,13]];
-  rows.forEach(([x0, w], i) => px(ctx, x0 - 1, i + 3, w + 2, 1, C.mOut)); // outline
-  px(ctx, rows[0][0], 2, rows[0][1], 1, C.mOut);
-  px(ctx, rows[rows.length-1][0]-1, rows.length+3, rows[rows.length-1][1]+2, 1, C.mOut);
-  rows.forEach(([x0, w], i) => {
-    const y = i + 3;
-    px(ctx, x0,         y, 2,     1, white);   // left light
-    px(ctx, x0 + 2,     y, w - 4, 1, mid);     // body
-    px(ctx, x0 + w - 2, y, 2,     1, shade);   // right shade
-  });
-  // top sunlit cap
-  dither(ctx, 11, 4, 10, 2, mid, white);
-  // diagonal marble veins
-  for (let i = 0; i < 6; i++) px(ctx, 8 + i * 2, 7 + i, 2, 1, vein);
-  for (let i = 0; i < 5; i++) px(ctx, 20 - i * 2, 12 + i, 2, 1, vein);
-  // sparkle
-  px(ctx, 14, 6, 1, 1, '#ffffff');
-  px(ctx, 22, 10, 1, 1, '#ffffff');
+// ── MOUNTAIN MASSIF — faceted rocky formation (relief + stone), like Zeus ───
+export function makeMountain(scene, key, radTiles, seed) {
+  const W = radTiles * 2 * TILE;
+  const H = Math.round(radTiles * 2 * TILE * 1.15);
+  const { tex, ctx } = canvas(scene, key, W, H);
+  const cx = W / 2;
+  const r = rng(seed);
+
+  const P = { l: '#bdb9aa', m: '#979382', d: '#6f6a59', x: '#49463a',
+              moss: '#6f8a46', mossHi: '#88a458' };
+
+  // ground shadow
+  ctx.fillStyle = 'rgba(35,30,12,0.20)';
+  ctx.beginPath(); ctx.ellipse(cx + 4, H * 0.82, W * 0.46, H * 0.12, 0, 0, Math.PI * 2); ctx.fill();
+
+  // rock lumps: peak at back, broad base in front (drawn back→front)
+  const lumps = [
+    [cx,            H * 0.34, W * 0.30, H * 0.32],   // main peak
+    [cx - W * 0.27, H * 0.52, W * 0.21, H * 0.22],
+    [cx + W * 0.26, H * 0.55, W * 0.23, H * 0.23],
+    [cx - W * 0.08, H * 0.70, W * 0.30, H * 0.22],   // front mass
+    [cx + W * 0.14, H * 0.74, W * 0.22, H * 0.17],
+    [cx - W * 0.24, H * 0.74, W * 0.16, H * 0.13],
+  ];
+
+  for (const [lx, ly, lrx, lry] of lumps) {
+    for (let y = -lry; y <= lry; y++) {
+      for (let x = -lrx; x <= lrx; x++) {
+        const nx = x / lrx, ny = y / lry;
+        const r2 = nx * nx + ny * ny;
+        if (r2 > 1) continue;
+        const t = (y + lry) / (2 * lry);          // 0 top → 1 bottom
+        let c;
+        if (r2 > 0.86) c = P.x;                    // dark rim / crevice
+        else if (t < 0.26) c = P.l;
+        else if (t < 0.56) c = P.m;
+        else if (t < 0.82) c = P.d;
+        else c = P.x;
+        // light from top-left: lift the left flank one shade
+        if (nx < -0.32 && r2 <= 0.86) {
+          if (c === P.m) c = P.l; else if (c === P.d) c = P.m; else if (c === P.x && t < 0.85) c = P.d;
+        }
+        px(ctx, lx + x, ly + y, 1, 1, c);
+      }
+    }
+    // sunlit cap highlight (top-left)
+    px(ctx, lx - lrx * 0.3, ly - lry * 0.62, lrx * 0.5, 2, P.l);
+    // moss flecks on top
+    for (let i = 0; i < 5; i++) {
+      const mx = lx + (r() - 0.5) * lrx, my = ly - lry * (0.2 + r() * 0.4);
+      px(ctx, mx | 0, my | 0, 2, 1, r() > 0.5 ? P.moss : P.mossHi);
+    }
+  }
   tex.refresh();
+  return { W, H, originY: 0.80 };   // base of the massif near the bottom
 }
 
 // ── WATER (seamless, no grid lines) ─────────────────────────────────────────
