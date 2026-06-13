@@ -1,4 +1,4 @@
-import { TILE, generateTextures } from '../utils/PixelArtGen.js';
+import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=8';
 
 const COLS = 30;
 const ROWS = 26;
