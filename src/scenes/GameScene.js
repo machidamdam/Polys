@@ -1,7 +1,7 @@
-import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=10';
+import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=11';
 
-const COLS = 40;
-const ROWS = 34;
+const COLS = 26;
+const ROWS = 58;
 const SEED = 20260613;
 
 const MAP_W = COLS * TILE;
@@ -59,11 +59,11 @@ export default class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: hint, alpha: 0, delay: 3500, duration: 1500, onComplete: () => hint.destroy() });
   }
 
-  // Shoreline: sea along the bottom, curving UP on the right to form a bay.
+  // Shoreline: lots of land to the north, sea at the south, curving into a bay.
   waterLevel(col) {
-    const base = ROWS * 0.74;
-    // bay: water reaches higher into the land around 72% across
-    const bay = 8 * Math.exp(-Math.pow((col - COLS * 0.72) / (COLS * 0.15), 2));
+    const base = ROWS * 0.82;
+    // bay: water reaches higher into the land around 70% across
+    const bay = 9 * Math.exp(-Math.pow((col - COLS * 0.70) / (COLS * 0.16), 2));
     const wob = 1.4 * Math.sin(col * 0.5) + 0.8 * Math.sin(col * 0.27 + 1.1);
     return Math.round(Phaser.Math.Clamp(base - bay + wob, 6, ROWS - 1));
   }
@@ -122,28 +122,33 @@ export default class GameScene extends Phaser.Scene {
       }
     };
 
-    // ── ZONES (Zeus-like layout) ──
-    // Forest groves → timber. Two leafy groves on the inland flanks.
-    cluster(['cypress', 'olive', 'olive', 'shrub'], COLS * 0.16, ROWS * 0.20, 6, 22);
-    cluster(['olive', 'cypress', 'shrub'],          COLS * 0.80, ROWS * 0.16, 5, 16);
+    // ── ZONES (Zeus-like layout, spread across the long northward map) ──
+    // Forest groves → timber.
+    cluster(['cypress', 'olive', 'olive', 'shrub'], COLS * 0.18, ROWS * 0.10, 5, 20);
+    cluster(['olive', 'cypress', 'shrub'],          COLS * 0.78, ROWS * 0.08, 4, 14);
+    cluster(['cypress', 'olive', 'shrub'],          COLS * 0.20, ROWS * 0.34, 5, 20);
+    cluster(['olive', 'olive', 'cypress', 'shrub'], COLS * 0.80, ROWS * 0.42, 5, 18);
+    cluster(['cypress', 'olive', 'shrub'],          COLS * 0.30, ROWS * 0.62, 5, 18);
 
-    // Rocky hills → stone. A craggy outcrop with boulders + scrub.
-    cluster(['rock', 'rock', 'shrub'],              COLS * 0.30, ROWS * 0.50, 5, 18);
-    cluster(['rock', 'shrub'],                      COLS * 0.62, ROWS * 0.30, 4, 12);
+    // Rocky hills → stone.
+    cluster(['rock', 'rock', 'shrub'],              COLS * 0.55, ROWS * 0.22, 4, 14);
+    cluster(['rock', 'shrub'],                      COLS * 0.50, ROWS * 0.50, 4, 14);
+    cluster(['rock', 'rock', 'shrub'],              COLS * 0.72, ROWS * 0.66, 4, 12);
 
-    // A scattered line of cypress marking a ridge
-    for (let i = 0; i < 7; i++) {
-      const col = Math.round(COLS * 0.42 + i * 1.3);
-      const row = Math.round(ROWS * 0.12 + Math.sin(i) * 1.5);
+    // Cypress ridge lines marking the high ground
+    for (let i = 0; i < 8; i++) {
+      const col = Math.round(COLS * 0.40 + i * 1.0);
+      const row = Math.round(ROWS * 0.05 + Math.sin(i) * 1.4);
       if (isLand(col, row)) addDeco('cypress', col, row);
     }
 
-    // A few lone trees dotting the open plain (kept sparse → buildable feel)
-    cluster(['olive', 'cypress'], COLS * 0.50, ROWS * 0.45, 9, 7);
+    // Lone trees dotting the open plains (sparse → buildable feel)
+    cluster(['olive', 'cypress'], COLS * 0.50, ROWS * 0.38, 11, 9);
+    cluster(['olive', 'cypress'], COLS * 0.45, ROWS * 0.72, 10, 8);
 
-    // ── meadow flowers in the open central plain ──
+    // ── meadow flowers across the open plains ──
     const flowers = ['flower_poppy', 'flower_lav', 'flower_daisy'];
-    for (let cl = 0; cl < 18; cl++) {
+    for (let cl = 0; cl < 40; cl++) {
       const col = 2 + ((r() * (COLS - 4)) | 0);
       const row = 2 + ((r() * (ROWS - 4)) | 0);
       if (!isLand(col, row)) continue;
@@ -173,8 +178,8 @@ export default class GameScene extends Phaser.Scene {
   centerCamera() {
     const { width, height } = this.scale;
     const mw = MAP_W * this.zoom, mh = MAP_H * this.zoom;
-    if (mw <= width) this.camX = (width - mw) / 2;
-    if (mh <= height) this.camY = (height - mh) / 2;
+    this.camX = (width - mw) / 2;        // centre horizontally
+    this.camY = height - mh;             // start at the south (sea), drag up for land
     this.clampCamera();
   }
 
