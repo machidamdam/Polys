@@ -1,7 +1,7 @@
-import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=8';
+import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=9';
 
-const COLS = 30;
-const ROWS = 26;
+const COLS = 32;
+const ROWS = 28;
 const SEED = 20260613;
 
 const MAP_W = COLS * TILE;
@@ -14,27 +14,39 @@ export default class GameScene extends Phaser.Scene {
     generateTextures(this);
 
     this.world = this.add.container(0, 0);
-    this.tileLayer = this.add.container(0, 0);
-    this.decoLayer = this.add.container(0, 0);
-    this.world.add([this.tileLayer, this.decoLayer]);
+    this.tileLayer = this.add.container(0, 0);   // ground
+    this.foamLayer = this.add.container(0, 0);   // shore foam
+    this.decoLayer = this.add.container(0, 0);   // trees/rocks/flowers
+    this.world.add([this.tileLayer, this.foamLayer, this.decoLayer]);
 
-    // zoom limits: never smaller than what fills the screen
     const { width, height } = this.scale;
     this.minZoom = Math.max(width / MAP_W, height / MAP_H);
     this.maxZoom = 3.5;
     this.zoom = this.minZoom;
     this.camX = 0; this.camY = 0;
 
+    this.seaTiles = [];
+    this.foamTiles = [];
+
     this.buildMap();
     this.setupInput();
-    this.clampCamera();
     this.centerCamera();
 
-    // water shimmer
-    this.shimmer = 0;
+    // animate the sea (traveling shimmer + lapping foam)
+    this.waterFrame = 0;
     this.time.addEvent({
-      delay: 650, loop: true,
-      callback: () => { this.shimmer ^= 1; if (this.pond) this.pond.setTexture(this.shimmer ? 'pond_b' : 'pond_a'); },
+      delay: 380, loop: true,
+      callback: () => {
+        this.waterFrame = (this.waterFrame + 1) % 3;
+        const wf = this.waterFrame;
+        this.seaTiles.forEach(s => {
+          const f = (wf + s.c + s.r) % 3;
+          s.spr.setTexture(`${s.deep ? 'sea' : 'shal'}${f}`);
+        });
+        this.foamTiles.forEach(s => {
+          s.spr.setTexture(`foam${(wf + s.c) % 2}`);
+        });
+      },
     });
 
     this.addVignette();
@@ -47,62 +59,82 @@ export default class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: hint, alpha: 0, delay: 3500, duration: 1500, onComplete: () => hint.destroy() });
   }
 
+  // coastline: sea fills the bottom, with an organic wavy shore
+  coastRow(col) {
+    const base = ROWS * 0.60;
+    const y = base
+      + 2.0 * Math.sin(col * 0.45)
+      + 1.2 * Math.sin(col * 0.21 + 1.7);
+    return Math.round(Phaser.Math.Clamp(y, 5, ROWS - 2));
+  }
+
   buildMap() {
     const r = rng(SEED);
+    this.coast = [];
+    for (let c = 0; c < COLS; c++) this.coast[c] = this.coastRow(c);
 
-    // grass base
-    for (let row = 0; row < ROWS; row++)
-      for (let col = 0; col < COLS; col++)
-        this.tileLayer.add(this.add.image(col * TILE, row * TILE, `grass${(r() * 4) | 0}`).setOrigin(0, 0));
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        const sea = this.coast[col];
+        const x = col * TILE, y = row * TILE;
 
-    // pond
-    const pondCX = MAP_W * 0.62, pondCY = MAP_H * 0.40;
-    this.pond = this.add.image(pondCX, pondCY, 'pond_a').setOrigin(0.5, 0.5).setDepth(pondCY);
-    this.decoLayer.add(this.pond);
-    const pondR = 120;
-    const blocked = (x, y) => Phaser.Math.Distance.Between(x, y, pondCX, pondCY) < pondR;
+        if (row >= sea) {
+          // sea
+          const deep = row >= sea + 2;
+          const spr = this.add.image(x, y, deep ? 'sea0' : 'shal0').setOrigin(0, 0);
+          this.tileLayer.add(spr);
+          this.seaTiles.push({ spr, c: col, r: row, deep });
+          // foam on the first sea row (shoreline)
+          if (row === sea) {
+            const foam = this.add.image(x, y, 'foam0').setOrigin(0, 0).setDepth(1);
+            this.foamLayer.add(foam);
+            this.foamTiles.push({ spr: foam, c: col });
+          }
+        } else if (row >= sea - 2) {
+          // beach band
+          this.tileLayer.add(this.add.image(x, y, 'sand').setOrigin(0, 0));
+        } else {
+          // grassland
+          this.tileLayer.add(this.add.image(x, y, `grass${(r() * 4) | 0}`).setOrigin(0, 0));
+        }
+      }
+    }
 
-    const place = (key, count, originY = 1) => {
+    // land bounds for a tile (true if grass, safe to plant)
+    const isLand = (col, row) => row < this.coast[col] - 2;
+
+    const place = (key, count) => {
       let tries = 0, made = 0;
-      while (made < count && tries < count * 40) {
+      while (made < count && tries < count * 50) {
         tries++;
-        const x = 40 + r() * (MAP_W - 80);
-        const y = 50 + r() * (MAP_H - 90);
-        if (blocked(x, y)) continue;
-        const s = this.add.image(x, y, key).setOrigin(0.5, originY).setDepth(y);
+        const col = 1 + ((r() * (COLS - 2)) | 0);
+        const row = 1 + ((r() * (ROWS - 2)) | 0);
+        if (!isLand(col, row)) continue;
+        const x = col * TILE + TILE / 2 + (r() - 0.5) * 16;
+        const y = row * TILE + TILE - (r() * 6);
+        const s = this.add.image(x, y, key).setOrigin(0.5, 1).setDepth(y);
         this.decoLayer.add(s);
         made++;
       }
     };
 
-    // a small ruined temple: a row of columns
-    const rowY = MAP_H * 0.74;
-    const startX = MAP_W * 0.18;
-    for (let i = 0; i < 5; i++) {
-      const cx = startX + i * 46;
-      if (blocked(cx, rowY)) continue;
-      const key = (i === 1 || i === 3) ? 'column_broken' : 'column';
-      const s = this.add.image(cx, rowY, key).setOrigin(0.5, 1).setDepth(rowY);
-      this.decoLayer.add(s);
-    }
-
-    // greek flora
-    place('cypress', 10);
+    place('cypress', 11);
     place('olive', 9);
-    place('column', 3);
-    place('column_broken', 4);
+    place('shrub', 8);
     place('rock', 7);
 
-    // poppy & lavender clusters
-    const flowers = ['flower_poppy', 'flower_lav', 'flower_w', 'flower_y'];
-    for (let cl = 0; cl < 12; cl++) {
-      const cxp = 50 + r() * (MAP_W - 100), cyp = 50 + r() * (MAP_H - 100);
-      if (blocked(cxp, cyp)) continue;
+    // flower clusters
+    const flowers = ['flower_poppy', 'flower_lav', 'flower_daisy'];
+    for (let cl = 0; cl < 14; cl++) {
+      const col = 1 + ((r() * (COLS - 2)) | 0);
+      const row = 1 + ((r() * (ROWS - 2)) | 0);
+      if (!isLand(col, row)) continue;
       const kind = flowers[(r() * flowers.length) | 0];
       const n = 3 + ((r() * 4) | 0);
       for (let i = 0; i < n; i++) {
-        const f = this.add.image(cxp + (r() - 0.5) * 44, cyp + (r() - 0.5) * 44, kind).setOrigin(0.5, 1);
-        f.setDepth(f.y);
+        const fx = col * TILE + 16 + (r() - 0.5) * 40;
+        const fy = row * TILE + 16 + (r() - 0.5) * 40;
+        const f = this.add.image(fx, fy, kind).setOrigin(0.5, 1).setDepth(fy);
         this.decoLayer.add(f);
       }
     }
@@ -111,15 +143,15 @@ export default class GameScene extends Phaser.Scene {
   addVignette() {
     const { width, height } = this.scale;
     const g = this.add.graphics().setScrollFactor(0).setDepth(900);
-    for (let i = 0; i < 60; i++) {
-      const a = (1 - i / 60) * 0.45;
+    for (let i = 0; i < 50; i++) {
+      const a = (1 - i / 50) * 0.4;
       g.fillStyle(0x0a1424, a);
       g.fillRect(0, i, width, 1);
       g.fillRect(0, height - 1 - i, width, 1);
     }
   }
 
-  // ── camera with clamping ──
+  // ── camera ──
   centerCamera() {
     const { width, height } = this.scale;
     const mw = MAP_W * this.zoom, mh = MAP_H * this.zoom;
@@ -131,29 +163,22 @@ export default class GameScene extends Phaser.Scene {
   clampCamera() {
     const { width, height } = this.scale;
     const mw = MAP_W * this.zoom, mh = MAP_H * this.zoom;
-    // horizontal
-    if (mw <= width) this.camX = (width - mw) / 2;
-    else this.camX = Phaser.Math.Clamp(this.camX, width - mw, 0);
-    // vertical
-    if (mh <= height) this.camY = (height - mh) / 2;
-    else this.camY = Phaser.Math.Clamp(this.camY, height - mh, 0);
+    this.camX = mw <= width  ? (width - mw) / 2  : Phaser.Math.Clamp(this.camX, width - mw, 0);
+    this.camY = mh <= height ? (height - mh) / 2 : Phaser.Math.Clamp(this.camY, height - mh, 0);
     this.apply();
   }
 
   apply() {
-    // Round to nearest pixel to prevent sub-pixel tile gaps
     this.world.setPosition(Math.round(this.camX), Math.round(this.camY));
     this.world.setScale(this.zoom);
   }
 
-  setZoom(z, focusX, focusY) {
+  setZoom(z, fx, fy) {
     const { width, height } = this.scale;
-    const fx = focusX ?? width / 2, fy = focusY ?? height / 2;
-    // world point under the focus before zoom
+    fx = fx ?? width / 2; fy = fy ?? height / 2;
     const wx = (fx - this.camX) / this.zoom;
     const wy = (fy - this.camY) / this.zoom;
     this.zoom = Phaser.Math.Clamp(z, this.minZoom, this.maxZoom);
-    // keep that world point under the focus after zoom
     this.camX = fx - wx * this.zoom;
     this.camY = fy - wy * this.zoom;
     this.clampCamera();
@@ -170,8 +195,8 @@ export default class GameScene extends Phaser.Scene {
       const ptrs = this.input.manager.pointers.filter(pt => pt.isDown);
       if (ptrs.length === 2) {
         const d = Phaser.Math.Distance.Between(ptrs[0].x, ptrs[0].y, ptrs[1].x, ptrs[1].y);
-        const midX = (ptrs[0].x + ptrs[1].x) / 2, midY = (ptrs[0].y + ptrs[1].y) / 2;
-        if (this.prevPinch !== null) this.setZoom(this.zoom + (d - this.prevPinch) * 0.006, midX, midY);
+        const mx = (ptrs[0].x + ptrs[1].x) / 2, my = (ptrs[0].y + ptrs[1].y) / 2;
+        if (this.prevPinch !== null) this.setZoom(this.zoom + (d - this.prevPinch) * 0.006, mx, my);
         this.prevPinch = d;
         return;
       }
