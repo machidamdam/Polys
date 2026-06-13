@@ -27,12 +27,8 @@ const C = {
 // ────────────────────────────────────────────────────────────────────────────
 export function generateTextures(scene) {
   for (let i = 0; i < 4; i++) makeGrass(scene, `grass${i}`, i);
-  makeGrassHigh(scene);
   makeSand(scene);
-  makeQuarry(scene);
   makeMarble(scene);
-  makeCliff(scene, 'cliff', { hi: '#b8ad90', mid: '#968a6e', lo: '#6f6450', out: '#473d2c' });
-  makeCliff(scene, 'cliff_marble', { hi: '#f0ead8', mid: '#cdc2a4', lo: '#a89c7c', out: '#6f6450' });
   for (let f = 0; f < 3; f++) makeWater(scene, `sea${f}`, f, true);
   for (let f = 0; f < 3; f++) makeWater(scene, `shal${f}`, f, false);
   for (let f = 0; f < 2; f++) makeFoam(scene, `foam${f}`, f);
@@ -86,71 +82,84 @@ function makeSand(scene) {
   tex.refresh();
 }
 
-// ── HIGHLAND GRASS — sunlit plateau top (reads as higher ground) ────────────
-function makeGrassHigh(scene) {
-  const { tex, ctx } = canvas(scene, 'grass_high', TILE, TILE);
-  const base = '#b4c068', hi = '#cad482', stone = '#a89c7c';
-  const r = rng(7777);
-  px(ctx, 0, 0, TILE, TILE, base);
-  dither(ctx, 0, 0, TILE, 4, base, hi);            // bright sunlit top
-  for (let i = 0; i < 5; i++) {                     // embedded stones
-    const x = (r() * (TILE - 3)) | 0, y = (r() * (TILE - 3)) | 0;
-    px(ctx, x, y, 3, 2, stone);
-    px(ctx, x, y, 3, 1, '#c8bfa0');
-  }
-  const blades = [[6,8],[14,21],[22,11],[27,24]];
-  blades.forEach(([bx, by]) => { px(ctx, bx, by, 1, 3, '#8f9a4c'); px(ctx, bx + 1, by + 1, 1, 2, hi); });
-  tex.refresh();
-}
-
-// ── CLIFF FACE — vertical rock wall that creates relief below a plateau ──────
-function makeCliff(scene, key, pal) {
-  const W = TILE, H = 46;
+// ── HILL — a whole raised plateau as ONE cohesive landform ──────────────────
+// topKind: 'grass' (green plateau) | 'quarry' (pale marble bedrock)
+export function makeHillTexture(scene, key, radTiles, topKind, seed) {
+  const lift = 24;                              // plateau height in px
+  const rx = radTiles * TILE - 4;
+  const ry = Math.round(rx * 0.66);            // flattened for top-down view
+  const W = rx * 2 + 8;
+  const H = ry * 2 + lift + 8;
   const { tex, ctx } = canvas(scene, key, W, H);
-  // shadow cast on the ground at the base
-  ctx.fillStyle = 'rgba(40,35,15,0.22)';
-  ctx.fillRect(0, H - 4, W, 4);
-  // overhang shadow just under the plateau lip
-  px(ctx, 0, 0, W, 3, pal.out);
-  // rock face with horizontal strata
-  for (let y = 3; y < H - 4; y++) {
-    let c = pal.mid;
-    if ((y - 3) % 6 === 0) c = pal.lo;          // strata seam
-    else if ((y - 3) % 6 === 1) c = pal.hi;     // highlight under seam
-    px(ctx, 0, y, W, 1, c);
-  }
-  // lit left edge / shaded right edge
-  px(ctx, 0, 3, 2, H - 7, pal.hi);
-  px(ctx, W - 2, 3, 2, H - 7, pal.lo);
-  // a couple of vertical cracks
-  px(ctx, 11, 5, 1, H - 12, pal.out);
-  px(ctx, 22, 8, 1, H - 16, pal.out);
-  // talus rubble at the foot
-  const r = rng(key.length * 91);
-  for (let i = 0; i < 7; i++) {
-    const x = (r() * (W - 3)) | 0;
-    px(ctx, x, H - 6 - ((r() * 2) | 0), 3, 2, pal.mid);
-    px(ctx, x, H - 6, 2, 1, pal.hi);
-  }
-  tex.refresh();
-}
+  const cx = W / 2;
+  const footCy = H - ry - 4;                    // ellipse centre (footprint)
 
-// ── QUARRY GROUND — pale exposed bedrock where marble is cut ─────────────────
-function makeQuarry(scene) {
-  const { tex, ctx } = canvas(scene, 'quarry', TILE, TILE);
-  const base = '#d6cdb4', hi = '#e8e0cc', lo = '#b6ac90', crack = '#928868';
-  px(ctx, 0, 0, TILE, TILE, base);
-  const r = rng(515);
-  // dusty speckle
-  for (let i = 0; i < 26; i++) {
-    const x = (r() * TILE) | 0, y = (r() * TILE) | 0;
-    px(ctx, x, y, 1, 1, r() > 0.5 ? hi : lo);
+  const top = topKind === 'quarry'
+    ? { base: '#d8cfb6', hi: '#ece4cf', lo: '#bdb398', edge: '#8f8568' }
+    : { base: '#9eb654', hi: '#bccb74', lo: '#7e8c42', edge: '#586030' };
+  const cliff = topKind === 'quarry'
+    ? { hi: '#e4dcc6', mid: '#cabf9f', lo: '#a89c7c', out: '#6f6450' }
+    : { hi: '#b6ab8e', mid: '#94886c', lo: '#6c624e', out: '#473d2c' };
+
+  const r = rng(seed);
+
+  // soft ground shadow under the hill
+  ctx.fillStyle = 'rgba(40,35,15,0.18)';
+  ctx.beginPath();
+  ctx.ellipse(cx + 4, footCy + ry * 0.55, rx * 0.96, ry * 0.42, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  for (let x = 0; x < W; x++) {
+    const nx = (x - cx) / rx;
+    if (Math.abs(nx) >= 1) continue;
+    const wob = 1 + 0.05 * Math.sin(x * 0.22) + 0.03 * Math.sin(x * 0.10 + 1.3);
+    const hh = ry * Math.sqrt(1 - nx * nx) * wob;
+    const footTop = footCy - hh, footBot = footCy + hh;
+    const topTop = footTop - lift, topBot = footBot - lift;
+
+    // CLIFF FACE (front + wrapping sides)
+    for (let y = Math.round(topBot); y < Math.round(footBot); y++) {
+      let c = cliff.mid;
+      if ((y % 5) === 0) c = cliff.lo;            // horizontal strata
+      else if ((y % 5) === 1) c = cliff.hi;
+      if (nx > 0.35) c = cliff.lo;                // right side in shade
+      else if (nx < -0.45) c = cliff.hi;          // left side lit
+      px(ctx, x, y, 1, 1, c);
+    }
+    // base outline + talus shadow
+    px(ctx, x, Math.round(footBot), 1, 1, cliff.out);
+
+    // TOP SURFACE
+    for (let y = Math.round(topTop); y < Math.round(topBot); y++) {
+      let c = top.base;
+      const d = (y - topTop) / Math.max(1, (topBot - topTop));
+      if (d < 0.22) c = top.hi;                   // sunlit back of plateau
+      else if (d > 0.86) c = top.lo;              // shade near front lip
+      px(ctx, x, y, 1, 1, c);
+    }
+    // front lip: bright edge then dark drop
+    px(ctx, x, Math.round(topBot) - 1, 1, 1, top.hi);
+    px(ctx, x, Math.round(topBot),     1, 1, top.edge);
+    // top contour rim
+    px(ctx, x, Math.round(topTop), 1, 1, top.edge);
   }
-  // a couple of chiselled cut lines
-  px(ctx, 4, 10, 14, 1, crack);
-  px(ctx, 17, 10, 1, 12, crack);
-  px(ctx, 6, 24, 18, 1, crack);
+
+  // top-surface detail
+  for (let i = 0; i < radTiles * 14; i++) {
+    const ang = r() * Math.PI * 2, dd = Math.sqrt(r());
+    const x = Math.round(cx + Math.cos(ang) * rx * 0.82 * dd);
+    const y = Math.round((footCy - lift) + Math.sin(ang) * ry * 0.7 * dd);
+    if (topKind === 'quarry') {
+      px(ctx, x, y, 1, 1, r() > 0.5 ? top.hi : top.lo);
+      if (r() > 0.85) px(ctx, x, y, 2, 1, '#b8ad94'); // vein fleck
+    } else {
+      if (r() > 0.5) { px(ctx, x, y, 1, 2, top.lo); px(ctx, x + 1, y + 1, 1, 1, top.hi); }
+      else px(ctx, x, y, 1, 1, top.hi);
+    }
+  }
   tex.refresh();
+  // origin so the plateau-top centre lands on the hill's map position
+  return { W, H, originY: (footCy - lift) / H };
 }
 
 // ── MARBLE OUTCROP — natural white marble boulder with grey veins ───────────
