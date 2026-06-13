@@ -28,6 +28,8 @@ const C = {
 export function generateTextures(scene) {
   for (let i = 0; i < 4; i++) makeGrass(scene, `grass${i}`, i);
   makeSand(scene);
+  makeQuarry(scene);
+  makeMarble(scene);
   for (let f = 0; f < 3; f++) makeWater(scene, `sea${f}`, f, true);
   for (let f = 0; f < 3; f++) makeWater(scene, `shal${f}`, f, false);
   for (let f = 0; f < 2; f++) makeFoam(scene, `foam${f}`, f);
@@ -78,6 +80,48 @@ function makeSand(scene) {
   }
   // a couple pebbles
   px(ctx, 8, 20, 2, 1, C.s2); px(ctx, 22, 11, 2, 1, C.s2);
+  tex.refresh();
+}
+
+// ── QUARRY GROUND — pale exposed bedrock where marble is cut ─────────────────
+function makeQuarry(scene) {
+  const { tex, ctx } = canvas(scene, 'quarry', TILE, TILE);
+  const base = '#d6cdb4', hi = '#e8e0cc', lo = '#b6ac90', crack = '#928868';
+  px(ctx, 0, 0, TILE, TILE, base);
+  const r = rng(515);
+  // dusty speckle
+  for (let i = 0; i < 26; i++) {
+    const x = (r() * TILE) | 0, y = (r() * TILE) | 0;
+    px(ctx, x, y, 1, 1, r() > 0.5 ? hi : lo);
+  }
+  // a couple of chiselled cut lines
+  px(ctx, 4, 10, 14, 1, crack);
+  px(ctx, 17, 10, 1, 12, crack);
+  px(ctx, 6, 24, 18, 1, crack);
+  tex.refresh();
+}
+
+// ── MARBLE BLOCKS — quarried white stone, stacked ───────────────────────────
+function makeMarble(scene) {
+  const W = 34, H = 30;
+  const { tex, ctx } = canvas(scene, 'marble', W, H);
+  ctx.fillStyle = 'rgba(70,60,20,0.20)';
+  ctx.beginPath(); ctx.ellipse(W / 2, H - 3, 14, 3, 0, 0, Math.PI * 2); ctx.fill();
+  // helper to draw one cut block with outline + shading
+  const block = (x, y, w, h) => {
+    px(ctx, x - 1, y - 1, w + 2, h + 2, C.mOut);  // outline
+    px(ctx, x, y, w, h, C.m1);                     // body
+    px(ctx, x, y, w, 1, C.m0);                     // top light
+    px(ctx, x, y, 1, h, C.m0);                     // left light
+    px(ctx, x + w - 1, y, 1, h, C.m2);             // right shade
+    px(ctx, x, y + h - 1, w, 1, C.m2);             // bottom shade
+  };
+  // bottom row (two blocks), top block
+  block(3, H - 12, 13, 10);
+  block(17, H - 12, 13, 10);
+  block(9, H - 22, 14, 11);
+  // a small loose chunk
+  block(24, H - 8, 6, 5);
   tex.refresh();
 }
 

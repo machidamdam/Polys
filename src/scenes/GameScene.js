@@ -1,4 +1,4 @@
-import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=12';
+import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=13';
 
 const COLS = 36;
 const ROWS = 52;
@@ -75,6 +75,11 @@ export default class GameScene extends Phaser.Scene {
     this.water = [];
     for (let c = 0; c < COLS; c++) this.water[c] = this.waterLevel(c);
 
+    // marble quarry zone — exposed bedrock where marble is cut (a Zeus resource)
+    const quarry = { c: COLS * 0.48, r: ROWS * 0.30, rad: 4.5 };
+    const inQuarry = (col, row) =>
+      Phaser.Math.Distance.Between(col, row, quarry.c, quarry.r) < quarry.rad;
+
     // ── ground tiles ──
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
@@ -93,6 +98,8 @@ export default class GameScene extends Phaser.Scene {
           }
         } else if (row >= sea - 2) {
           this.tileLayer.add(this.add.image(x, y, 'sand').setOrigin(0, 0));
+        } else if (inQuarry(col, row)) {
+          this.tileLayer.add(this.add.image(x, y, 'quarry').setOrigin(0, 0));
         } else {
           this.tileLayer.add(this.add.image(x, y, `grass${(r() * 4) | 0}`).setOrigin(0, 0));
         }
@@ -100,7 +107,8 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const isLand = (col, row) =>
-      col >= 0 && col < COLS && row >= 1 && row < this.water[col] - 2;
+      col >= 0 && col < COLS && row >= 1 &&
+      row < this.water[col] - 2 && !inQuarry(col, row);
 
     const addDeco = (key, col, row) => {
       const x = col * TILE + TILE / 2 + (r() - 0.5) * 18;
@@ -124,33 +132,30 @@ export default class GameScene extends Phaser.Scene {
       }
     };
 
-    // ── ZONES (Zeus-like layout, spread across the long northward map) ──
-    // Forest groves → timber.
-    cluster(['cypress', 'olive', 'olive', 'shrub'], COLS * 0.18, ROWS * 0.10, 5, 20);
-    cluster(['olive', 'cypress', 'shrub'],          COLS * 0.78, ROWS * 0.08, 4, 14);
-    cluster(['cypress', 'olive', 'shrub'],          COLS * 0.20, ROWS * 0.34, 5, 20);
-    cluster(['olive', 'olive', 'cypress', 'shrub'], COLS * 0.80, ROWS * 0.42, 5, 18);
-    cluster(['cypress', 'olive', 'shrub'],          COLS * 0.30, ROWS * 0.62, 5, 18);
+    // ── ZONES (Zeus-like layout) ──
+    // TWO dense forests → timber. High count + small radius = packed woods.
+    cluster(['cypress', 'olive', 'olive', 'cypress', 'shrub'], COLS * 0.20, ROWS * 0.16, 6, 55);
+    cluster(['olive', 'cypress', 'cypress', 'olive', 'shrub'], COLS * 0.74, ROWS * 0.74, 6, 50);
 
     // Rocky hills → stone.
-    cluster(['rock', 'rock', 'shrub'],              COLS * 0.55, ROWS * 0.22, 4, 14);
-    cluster(['rock', 'shrub'],                      COLS * 0.50, ROWS * 0.50, 4, 14);
-    cluster(['rock', 'rock', 'shrub'],              COLS * 0.72, ROWS * 0.66, 4, 12);
+    cluster(['rock', 'rock', 'shrub'],              COLS * 0.70, ROWS * 0.24, 4, 16);
+    cluster(['rock', 'shrub'],                      COLS * 0.28, ROWS * 0.40, 4, 13);
 
-    // Cypress ridge lines marking the high ground
-    for (let i = 0; i < 8; i++) {
-      const col = Math.round(COLS * 0.40 + i * 1.0);
-      const row = Math.round(ROWS * 0.05 + Math.sin(i) * 1.4);
-      if (isLand(col, row)) addDeco('cypress', col, row);
+    // Marble quarry → marble. Stacks of cut blocks on the exposed bedrock.
+    for (let i = 0; i < 9; i++) {
+      const ang = r() * Math.PI * 2;
+      const dist = quarry.rad * 0.85 * Math.sqrt(r());
+      const col = Math.round(quarry.c + Math.cos(ang) * dist);
+      const row = Math.round(quarry.r + Math.sin(ang) * dist);
+      const x = col * TILE + TILE / 2 + (r() - 0.5) * 14;
+      const y = row * TILE + TILE - (r() * 6);
+      const s = this.add.image(x, y, r() > 0.4 ? 'marble' : 'rock').setOrigin(0.5, 1).setDepth(y);
+      this.decoLayer.add(s);
     }
-
-    // Lone trees dotting the open plains (sparse → buildable feel)
-    cluster(['olive', 'cypress'], COLS * 0.50, ROWS * 0.38, 11, 9);
-    cluster(['olive', 'cypress'], COLS * 0.45, ROWS * 0.72, 10, 8);
 
     // ── meadow flowers across the open plains ──
     const flowers = ['flower_poppy', 'flower_lav', 'flower_daisy'];
-    for (let cl = 0; cl < 40; cl++) {
+    for (let cl = 0; cl < 30; cl++) {
       const col = 2 + ((r() * (COLS - 4)) | 0);
       const row = 2 + ((r() * (ROWS - 4)) | 0);
       if (!isLand(col, row)) continue;
