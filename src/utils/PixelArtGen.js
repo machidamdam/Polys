@@ -27,9 +27,12 @@ const C = {
 // ────────────────────────────────────────────────────────────────────────────
 export function generateTextures(scene) {
   for (let i = 0; i < 4; i++) makeGrass(scene, `grass${i}`, i);
+  makeGrassHigh(scene);
   makeSand(scene);
   makeQuarry(scene);
   makeMarble(scene);
+  makeCliff(scene, 'cliff', { hi: '#b8ad90', mid: '#968a6e', lo: '#6f6450', out: '#473d2c' });
+  makeCliff(scene, 'cliff_marble', { hi: '#f0ead8', mid: '#cdc2a4', lo: '#a89c7c', out: '#6f6450' });
   for (let f = 0; f < 3; f++) makeWater(scene, `sea${f}`, f, true);
   for (let f = 0; f < 3; f++) makeWater(scene, `shal${f}`, f, false);
   for (let f = 0; f < 2; f++) makeFoam(scene, `foam${f}`, f);
@@ -83,6 +86,55 @@ function makeSand(scene) {
   tex.refresh();
 }
 
+// ── HIGHLAND GRASS — sunlit plateau top (reads as higher ground) ────────────
+function makeGrassHigh(scene) {
+  const { tex, ctx } = canvas(scene, 'grass_high', TILE, TILE);
+  const base = '#b4c068', hi = '#cad482', stone = '#a89c7c';
+  const r = rng(7777);
+  px(ctx, 0, 0, TILE, TILE, base);
+  dither(ctx, 0, 0, TILE, 4, base, hi);            // bright sunlit top
+  for (let i = 0; i < 5; i++) {                     // embedded stones
+    const x = (r() * (TILE - 3)) | 0, y = (r() * (TILE - 3)) | 0;
+    px(ctx, x, y, 3, 2, stone);
+    px(ctx, x, y, 3, 1, '#c8bfa0');
+  }
+  const blades = [[6,8],[14,21],[22,11],[27,24]];
+  blades.forEach(([bx, by]) => { px(ctx, bx, by, 1, 3, '#8f9a4c'); px(ctx, bx + 1, by + 1, 1, 2, hi); });
+  tex.refresh();
+}
+
+// ── CLIFF FACE — vertical rock wall that creates relief below a plateau ──────
+function makeCliff(scene, key, pal) {
+  const W = TILE, H = 46;
+  const { tex, ctx } = canvas(scene, key, W, H);
+  // shadow cast on the ground at the base
+  ctx.fillStyle = 'rgba(40,35,15,0.22)';
+  ctx.fillRect(0, H - 4, W, 4);
+  // overhang shadow just under the plateau lip
+  px(ctx, 0, 0, W, 3, pal.out);
+  // rock face with horizontal strata
+  for (let y = 3; y < H - 4; y++) {
+    let c = pal.mid;
+    if ((y - 3) % 6 === 0) c = pal.lo;          // strata seam
+    else if ((y - 3) % 6 === 1) c = pal.hi;     // highlight under seam
+    px(ctx, 0, y, W, 1, c);
+  }
+  // lit left edge / shaded right edge
+  px(ctx, 0, 3, 2, H - 7, pal.hi);
+  px(ctx, W - 2, 3, 2, H - 7, pal.lo);
+  // a couple of vertical cracks
+  px(ctx, 11, 5, 1, H - 12, pal.out);
+  px(ctx, 22, 8, 1, H - 16, pal.out);
+  // talus rubble at the foot
+  const r = rng(key.length * 91);
+  for (let i = 0; i < 7; i++) {
+    const x = (r() * (W - 3)) | 0;
+    px(ctx, x, H - 6 - ((r() * 2) | 0), 3, 2, pal.mid);
+    px(ctx, x, H - 6, 2, 1, pal.hi);
+  }
+  tex.refresh();
+}
+
 // ── QUARRY GROUND — pale exposed bedrock where marble is cut ─────────────────
 function makeQuarry(scene) {
   const { tex, ctx } = canvas(scene, 'quarry', TILE, TILE);
@@ -101,27 +153,32 @@ function makeQuarry(scene) {
   tex.refresh();
 }
 
-// ── MARBLE BLOCKS — quarried white stone, stacked ───────────────────────────
+// ── MARBLE OUTCROP — natural white marble boulder with grey veins ───────────
 function makeMarble(scene) {
-  const W = 34, H = 30;
+  const W = 34, H = 26;
   const { tex, ctx } = canvas(scene, 'marble', W, H);
+  const white = '#f2ecde', mid = '#dcd2bc', vein = '#b8ad94', shade = '#a89c80';
   ctx.fillStyle = 'rgba(70,60,20,0.20)';
-  ctx.beginPath(); ctx.ellipse(W / 2, H - 3, 14, 3, 0, 0, Math.PI * 2); ctx.fill();
-  // helper to draw one cut block with outline + shading
-  const block = (x, y, w, h) => {
-    px(ctx, x - 1, y - 1, w + 2, h + 2, C.mOut);  // outline
-    px(ctx, x, y, w, h, C.m1);                     // body
-    px(ctx, x, y, w, 1, C.m0);                     // top light
-    px(ctx, x, y, 1, h, C.m0);                     // left light
-    px(ctx, x + w - 1, y, 1, h, C.m2);             // right shade
-    px(ctx, x, y + h - 1, w, 1, C.m2);             // bottom shade
-  };
-  // bottom row (two blocks), top block
-  block(3, H - 12, 13, 10);
-  block(17, H - 12, 13, 10);
-  block(9, H - 22, 14, 11);
-  // a small loose chunk
-  block(24, H - 8, 6, 5);
+  ctx.beginPath(); ctx.ellipse(W / 2, H - 3, 13, 3, 0, 0, Math.PI * 2); ctx.fill();
+  // lumpy boulder silhouette, row by row
+  const rows = [[13,8],[10,15],[7,21],[5,25],[4,26],[5,24],[7,20],[10,13]];
+  rows.forEach(([x0, w], i) => px(ctx, x0 - 1, i + 3, w + 2, 1, C.mOut)); // outline
+  px(ctx, rows[0][0], 2, rows[0][1], 1, C.mOut);
+  px(ctx, rows[rows.length-1][0]-1, rows.length+3, rows[rows.length-1][1]+2, 1, C.mOut);
+  rows.forEach(([x0, w], i) => {
+    const y = i + 3;
+    px(ctx, x0,         y, 2,     1, white);   // left light
+    px(ctx, x0 + 2,     y, w - 4, 1, mid);     // body
+    px(ctx, x0 + w - 2, y, 2,     1, shade);   // right shade
+  });
+  // top sunlit cap
+  dither(ctx, 11, 4, 10, 2, mid, white);
+  // diagonal marble veins
+  for (let i = 0; i < 6; i++) px(ctx, 8 + i * 2, 7 + i, 2, 1, vein);
+  for (let i = 0; i < 5; i++) px(ctx, 20 - i * 2, 12 + i, 2, 1, vein);
+  // sparkle
+  px(ctx, 14, 6, 1, 1, '#ffffff');
+  px(ctx, 22, 10, 1, 1, '#ffffff');
   tex.refresh();
 }
 

@@ -1,4 +1,4 @@
-import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=13';
+import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=14';
 
 const COLS = 36;
 const ROWS = 52;
@@ -75,8 +75,18 @@ export default class GameScene extends Phaser.Scene {
     this.water = [];
     for (let c = 0; c < COLS; c++) this.water[c] = this.waterLevel(c);
 
-    // marble quarry zone — exposed bedrock where marble is cut (a Zeus resource)
-    const quarry = { c: COLS * 0.48, r: ROWS * 0.30, rad: 4.5 };
+    // ── ELEVATION (relief like Zeus) ──
+    // Raised plateaus; cliffs are drawn on their downhill (south) edges.
+    const hills = [
+      { c: COLS * 0.48, r: ROWS * 0.28, rad: 6.5, marble: true },  // marble hill
+      { c: COLS * 0.22, r: ROWS * 0.18, rad: 5.0, marble: false }, // forested hill
+      { c: COLS * 0.74, r: ROWS * 0.70, rad: 5.0, marble: false }, // southern hill
+    ];
+    const isHigh = (col, row) =>
+      hills.some(h => Phaser.Math.Distance.Between(col, row, h.c, h.r) < h.rad);
+
+    // marble quarry sits on the marble hill (exposed bedrock + marble outcrops)
+    const quarry = { c: COLS * 0.48, r: ROWS * 0.28, rad: 4.0 };
     const inQuarry = (col, row) =>
       Phaser.Math.Distance.Between(col, row, quarry.c, quarry.r) < quarry.rad;
 
@@ -100,9 +110,27 @@ export default class GameScene extends Phaser.Scene {
           this.tileLayer.add(this.add.image(x, y, 'sand').setOrigin(0, 0));
         } else if (inQuarry(col, row)) {
           this.tileLayer.add(this.add.image(x, y, 'quarry').setOrigin(0, 0));
+        } else if (isHigh(col, row)) {
+          this.tileLayer.add(this.add.image(x, y, 'grass_high').setOrigin(0, 0));
         } else {
           this.tileLayer.add(this.add.image(x, y, `grass${(r() * 4) | 0}`).setOrigin(0, 0));
         }
+      }
+    }
+
+    // ── cliffs: draw a rock wall wherever a plateau steps down to lowland ──
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        if (!isHigh(col, row)) continue;
+        const belowRow = row + 1;
+        const belowIsLowland =
+          belowRow < this.water[col] - 2 && !isHigh(col, belowRow);
+        if (!belowIsLowland) continue;
+        const key = inQuarry(col, row) ? 'cliff_marble' : 'cliff';
+        const cliff = this.add.image(col * TILE, row * TILE + TILE - 6, key)
+          .setOrigin(0, 0)
+          .setDepth((row + 1) * TILE - 2);
+        this.decoLayer.add(cliff);
       }
     }
 
@@ -141,7 +169,7 @@ export default class GameScene extends Phaser.Scene {
     cluster(['rock', 'rock', 'shrub'],              COLS * 0.70, ROWS * 0.24, 4, 16);
     cluster(['rock', 'shrub'],                      COLS * 0.28, ROWS * 0.40, 4, 13);
 
-    // Marble quarry → marble. Stacks of cut blocks on the exposed bedrock.
+    // Marble quarry → marble outcrops on the exposed bedrock of the marble hill.
     for (let i = 0; i < 9; i++) {
       const ang = r() * Math.PI * 2;
       const dist = quarry.rad * 0.85 * Math.sqrt(r());
