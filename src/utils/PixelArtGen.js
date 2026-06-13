@@ -81,29 +81,25 @@ function makeSand(scene) {
   tex.refresh();
 }
 
-// ── WATER (animated, deep or shallow) ───────────────────────────────────────
+// ── WATER (seamless, no grid lines) ─────────────────────────────────────────
 function makeWater(scene, key, frame, deep) {
   const { tex, ctx } = canvas(scene, key, TILE, TILE);
   const base = deep ? C.d0 : C.h0;
   const mid  = deep ? C.d1 : C.h1;
   const lite = deep ? C.d2 : C.h2;
-  const dark = deep ? C.d3 : C.h3;
+  // flat base — NO edge banding, so tiles join invisibly
   px(ctx, 0, 0, TILE, TILE, base);
-  // gentle horizontal depth banding
-  dither(ctx, 0, 0, TILE, TILE, base, mid);
-  px(ctx, 0, TILE - 4, TILE, 4, dark);
-  // moving wave crests
-  const off = frame * 6;
-  for (let row = 0; row < 4; row++) {
-    const y = (row * 8 + off) % TILE;
-    for (let x = (row % 2) * 4; x < TILE; x += 8) {
-      px(ctx, (x + off) % TILE, y, 3, 1, mid);
-    }
-  }
-  // sparkles
-  const r = rng(1234 + frame * 71);
-  for (let i = 0; i < 5; i++) {
-    px(ctx, (r() * TILE) | 0, (r() * (TILE - 4)) | 0, 1, 1, lite);
+  // fine uniform speckle (identical every tile → no visible seams)
+  for (let y = 0; y < TILE; y++)
+    for (let x = 0; x < TILE; x++)
+      if (((x * 3 + y * 7) % 13) === 0) px(ctx, x, y, 1, 1, mid);
+  // a few drifting sparkles, kept away from edges
+  const r = rng(900 + frame * 53);
+  for (let i = 0; i < 6; i++) {
+    const x = 3 + ((r() * (TILE - 8)) | 0);
+    const y = 3 + ((r() * (TILE - 8)) | 0);
+    px(ctx, x, y, 2, 1, lite);
+    px(ctx, x, y + 1, 1, 1, lite);
   }
   tex.refresh();
 }

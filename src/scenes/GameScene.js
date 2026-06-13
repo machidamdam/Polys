@@ -1,7 +1,7 @@
-import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=9';
+import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=10';
 
-const COLS = 32;
-const ROWS = 28;
+const COLS = 40;
+const ROWS = 34;
 const SEED = 20260613;
 
 const MAP_W = COLS * TILE;
@@ -59,75 +59,93 @@ export default class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: hint, alpha: 0, delay: 3500, duration: 1500, onComplete: () => hint.destroy() });
   }
 
-  // coastline: sea fills the bottom, with an organic wavy shore
-  coastRow(col) {
-    const base = ROWS * 0.60;
-    const y = base
-      + 2.0 * Math.sin(col * 0.45)
-      + 1.2 * Math.sin(col * 0.21 + 1.7);
-    return Math.round(Phaser.Math.Clamp(y, 5, ROWS - 2));
+  // Shoreline: sea along the bottom, curving UP on the right to form a bay.
+  waterLevel(col) {
+    const base = ROWS * 0.74;
+    // bay: water reaches higher into the land around 72% across
+    const bay = 8 * Math.exp(-Math.pow((col - COLS * 0.72) / (COLS * 0.15), 2));
+    const wob = 1.4 * Math.sin(col * 0.5) + 0.8 * Math.sin(col * 0.27 + 1.1);
+    return Math.round(Phaser.Math.Clamp(base - bay + wob, 6, ROWS - 1));
   }
 
   buildMap() {
     const r = rng(SEED);
-    this.coast = [];
-    for (let c = 0; c < COLS; c++) this.coast[c] = this.coastRow(c);
+    this.water = [];
+    for (let c = 0; c < COLS; c++) this.water[c] = this.waterLevel(c);
 
+    // ── ground tiles ──
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
-        const sea = this.coast[col];
+        const sea = this.water[col];
         const x = col * TILE, y = row * TILE;
 
         if (row >= sea) {
-          // sea
-          const deep = row >= sea + 2;
+          const deep = row >= sea + 3;
           const spr = this.add.image(x, y, deep ? 'sea0' : 'shal0').setOrigin(0, 0);
           this.tileLayer.add(spr);
           this.seaTiles.push({ spr, c: col, r: row, deep });
-          // foam on the first sea row (shoreline)
           if (row === sea) {
             const foam = this.add.image(x, y, 'foam0').setOrigin(0, 0).setDepth(1);
             this.foamLayer.add(foam);
             this.foamTiles.push({ spr: foam, c: col });
           }
         } else if (row >= sea - 2) {
-          // beach band
           this.tileLayer.add(this.add.image(x, y, 'sand').setOrigin(0, 0));
         } else {
-          // grassland
           this.tileLayer.add(this.add.image(x, y, `grass${(r() * 4) | 0}`).setOrigin(0, 0));
         }
       }
     }
 
-    // land bounds for a tile (true if grass, safe to plant)
-    const isLand = (col, row) => row < this.coast[col] - 2;
+    const isLand = (col, row) =>
+      col >= 0 && col < COLS && row >= 1 && row < this.water[col] - 2;
 
-    const place = (key, count) => {
-      let tries = 0, made = 0;
-      while (made < count && tries < count * 50) {
+    const addDeco = (key, col, row) => {
+      const x = col * TILE + TILE / 2 + (r() - 0.5) * 18;
+      const y = row * TILE + TILE - (r() * 6);
+      const s = this.add.image(x, y, key).setOrigin(0.5, 1).setDepth(y);
+      this.decoLayer.add(s);
+    };
+
+    // place `count` items in a soft disk around (cc,cr)
+    const cluster = (keys, cc, cr, rad, count) => {
+      let made = 0, tries = 0;
+      while (made < count && tries < count * 8) {
         tries++;
-        const col = 1 + ((r() * (COLS - 2)) | 0);
-        const row = 1 + ((r() * (ROWS - 2)) | 0);
+        const ang = r() * Math.PI * 2;
+        const dist = rad * Math.sqrt(r());           // uniform within disk
+        const col = Math.round(cc + Math.cos(ang) * dist);
+        const row = Math.round(cr + Math.sin(ang) * dist);
         if (!isLand(col, row)) continue;
-        const x = col * TILE + TILE / 2 + (r() - 0.5) * 16;
-        const y = row * TILE + TILE - (r() * 6);
-        const s = this.add.image(x, y, key).setOrigin(0.5, 1).setDepth(y);
-        this.decoLayer.add(s);
+        addDeco(keys[(r() * keys.length) | 0], col, row);
         made++;
       }
     };
 
-    place('cypress', 11);
-    place('olive', 9);
-    place('shrub', 8);
-    place('rock', 7);
+    // ── ZONES (Zeus-like layout) ──
+    // Forest groves → timber. Two leafy groves on the inland flanks.
+    cluster(['cypress', 'olive', 'olive', 'shrub'], COLS * 0.16, ROWS * 0.20, 6, 22);
+    cluster(['olive', 'cypress', 'shrub'],          COLS * 0.80, ROWS * 0.16, 5, 16);
 
-    // flower clusters
+    // Rocky hills → stone. A craggy outcrop with boulders + scrub.
+    cluster(['rock', 'rock', 'shrub'],              COLS * 0.30, ROWS * 0.50, 5, 18);
+    cluster(['rock', 'shrub'],                      COLS * 0.62, ROWS * 0.30, 4, 12);
+
+    // A scattered line of cypress marking a ridge
+    for (let i = 0; i < 7; i++) {
+      const col = Math.round(COLS * 0.42 + i * 1.3);
+      const row = Math.round(ROWS * 0.12 + Math.sin(i) * 1.5);
+      if (isLand(col, row)) addDeco('cypress', col, row);
+    }
+
+    // A few lone trees dotting the open plain (kept sparse → buildable feel)
+    cluster(['olive', 'cypress'], COLS * 0.50, ROWS * 0.45, 9, 7);
+
+    // ── meadow flowers in the open central plain ──
     const flowers = ['flower_poppy', 'flower_lav', 'flower_daisy'];
-    for (let cl = 0; cl < 14; cl++) {
-      const col = 1 + ((r() * (COLS - 2)) | 0);
-      const row = 1 + ((r() * (ROWS - 2)) | 0);
+    for (let cl = 0; cl < 18; cl++) {
+      const col = 2 + ((r() * (COLS - 4)) | 0);
+      const row = 2 + ((r() * (ROWS - 4)) | 0);
       if (!isLand(col, row)) continue;
       const kind = flowers[(r() * flowers.length) | 0];
       const n = 3 + ((r() * 4) | 0);
