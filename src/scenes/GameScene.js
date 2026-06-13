@@ -1,7 +1,7 @@
-import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=11';
+import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=12';
 
-const COLS = 26;
-const ROWS = 58;
+const COLS = 36;
+const ROWS = 52;
 const SEED = 20260613;
 
 const MAP_W = COLS * TILE;
@@ -20,8 +20,10 @@ export default class GameScene extends Phaser.Scene {
     this.world.add([this.tileLayer, this.foamLayer, this.decoLayer]);
 
     const { width, height } = this.scale;
-    this.minZoom = Math.max(width / MAP_W, height / MAP_H);
-    this.maxZoom = 3.5;
+    // *1.06 leaves a little overflow on BOTH axes at min zoom, so you can
+    // always pan in every direction while the map still fills the screen.
+    this.minZoom = Math.max(width / MAP_W, height / MAP_H) * 1.06;
+    this.maxZoom = 4;
     this.zoom = this.minZoom;
     this.camX = 0; this.camY = 0;
 
