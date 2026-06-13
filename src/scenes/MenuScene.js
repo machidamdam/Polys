@@ -24,18 +24,17 @@ export default class MenuScene extends Phaser.Scene {
       strokeThickness: 5,
     }).setOrigin(0.5);
 
-    this.add.text(width / 2, height * 0.38, 'Bâtis ta cité grecque', {
+    this.add.text(width / 2, height * 0.38, 'Une île à explorer', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#c8a850',
     }).setOrigin(0.5);
 
-    // Simple house pixel art preview
-    this.add.text(width / 2, height * 0.52, '🏛️', { fontSize: '48px' }).setOrigin(0.5);
+    this.add.text(width / 2, height * 0.52, '🌿', { fontSize: '48px' }).setOrigin(0.5);
 
     // Play button
     const btn = this.add.rectangle(width / 2, height * 0.70, 180, 50, 0xffd700).setInteractive();
-    this.add.text(width / 2, height * 0.70, 'COMMENCER', {
+    this.add.text(width / 2, height * 0.70, 'EXPLORER', {
       fontFamily: 'monospace', fontSize: '18px', color: '#1a0a2e',
     }).setOrigin(0.5);
 
@@ -43,11 +42,6 @@ export default class MenuScene extends Phaser.Scene {
       this.cameras.main.fadeOut(300, 0, 0, 0);
       this.time.delayedCall(300, () => this.scene.start('GameScene'));
     });
-
-    // Hint
-    this.add.text(width / 2, height * 0.83, 'Pose des maisons et des routes\npour agrandir ta ville', {
-      fontFamily: 'monospace', fontSize: '12px', color: '#6688aa', align: 'center',
-    }).setOrigin(0.5);
 
     this.cameras.main.fadeIn(400);
   }

@@ -1,138 +1,213 @@
 export const TILE = 32;
 
-// Stardew-inspired warm palette
-const C = {
-  grassBase:   '#5d9e4a',
-  grassLight:  '#6db85a',
-  grassDark:   '#4a8038',
-  grassShadow: '#3d6b30',
-  roadBase:    '#b89460',
-  roadLight:   '#ccaa72',
-  roadDark:    '#9a7844',
-  roadLine:    '#8a6c38',
-  houseWall:   '#e8d5a8',
-  houseWallDk: '#c4b080',
-  houseRoof:   '#c04a2e',
-  houseRoofDk: '#922e18',
-  houseDoor:   '#7a4a20',
-  houseWin:    '#a8d0e8',
-  houseWinFr:  '#6a9ab8',
-  outline:     '#2a1a0e',
+// ── Cohesive warm Stardew-ish palette ──────────────────────────────────────
+const P = {
+  grass:   ['#7cb342', '#82bd47', '#6fa838', '#88c44e'],
+  grassHi: '#9bd45f',
+  grassLo: '#5e9130',
+  grassDk: '#4d7a28',
+
+  trunk:   '#6b4326',
+  trunkDk: '#54341d',
+  leaf:    '#3f8c3a',
+  leafHi:  '#5bb04f',
+  leafLo:  '#2e6b2c',
+
+  water:   '#4aa3d4',
+  waterHi: '#74c2e8',
+  waterLo: '#327fb0',
+  sand:    '#e0cf94',
+  sandDk:  '#c4ad6e',
+
+  rock:    '#9a9a9a',
+  rockHi:  '#bcbcbc',
+  rockLo:  '#6e6e6e',
+
+  bush:    '#4f9e42',
+  bushHi:  '#6dbb58',
+  bushLo:  '#3a7a30',
+
+  out:     '#2c3a1a',
 };
 
 export function generateTextures(scene) {
-  makeTile(scene, 'grass', drawGrass);
-  makeTile(scene, 'road_h', ctx => drawRoad(ctx, 'h'));
-  makeTile(scene, 'road_v', ctx => drawRoad(ctx, 'v'));
-  makeTile(scene, 'road_c', ctx => drawRoad(ctx, 'c'));
-  makeSprite(scene, 'house', 32, 40, drawHouse);
-  makeSprite(scene, 'cursor', 32, 32, drawCursor);
+  for (let i = 0; i < 4; i++) makeGrass(scene, `grass${i}`, i);
+  makeTree(scene, 'tree0', 0);
+  makeTree(scene, 'tree1', 1);
+  makeBush(scene);
+  makeRock(scene);
+  makeFlower(scene, 'flower_r', '#e8556d', '#ff8095');
+  makeFlower(scene, 'flower_y', '#f2c14e', '#ffe08a');
+  makeFlower(scene, 'flower_w', '#f4f4f4', '#ffffff');
+  makeFlower(scene, 'flower_p', '#a667d4', '#c79bee');
+  makePond(scene, 'pond_a', 0);
+  makePond(scene, 'pond_b', 1);
 }
 
-function makeTile(scene, key, fn) {
-  const tex = scene.textures.createCanvas(key, TILE, TILE);
-  fn(tex.getContext());
-  tex.refresh();
-}
+// ── helpers ─────────────────────────────────────────────────────────────────
+function px(ctx, x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); }
 
-function makeSprite(scene, key, w, h, fn) {
+function canvas(scene, key, w, h) {
   const tex = scene.textures.createCanvas(key, w, h);
-  fn(tex.getContext(), w, h);
+  return { tex, ctx: tex.getContext() };
+}
+
+function rng(seed) {
+  let s = seed >>> 0;
+  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+
+// ── grass tile (4 subtle variants so tiling looks natural) ──────────────────
+function makeGrass(scene, key, variant) {
+  const { tex, ctx } = canvas(scene, key, TILE, TILE);
+  const r = rng(1000 + variant * 77);
+
+  // base — gentle horizontal banding for soft texture
+  for (let y = 0; y < TILE; y++) {
+    const band = P.grass[(y >> 3) % P.grass.length];
+    px(ctx, 0, y, TILE, 1, band);
+  }
+
+  // scattered light & dark specks
+  for (let i = 0; i < 18; i++) {
+    const x = (r() * TILE) | 0, y = (r() * TILE) | 0;
+    px(ctx, x, y, 1, 1, r() > 0.5 ? P.grassHi : P.grassLo);
+  }
+
+  // a few tiny grass blades
+  const blades = 3 + ((r() * 3) | 0);
+  for (let i = 0; i < blades; i++) {
+    const x = 3 + ((r() * (TILE - 6)) | 0);
+    const y = 6 + ((r() * (TILE - 10)) | 0);
+    px(ctx, x, y, 1, 3, P.grassLo);
+    px(ctx, x + 1, y + 1, 1, 2, P.grassHi);
+  }
   tex.refresh();
 }
 
-function drawGrass(ctx) {
-  // Base
-  fill(ctx, 0, 0, TILE, TILE, C.grassBase);
+// ── tree (chunky round canopy + trunk, bottom-anchored) ─────────────────────
+function makeTree(scene, key, variant) {
+  const W = 48, H = 64;
+  const { tex, ctx } = canvas(scene, key, W, H);
+  const cx = W / 2;
 
-  // Subtle pixel variation
-  const pts = [
-    [2,3],[7,1],[14,5],[20,2],[27,4],[4,10],[11,8],[18,11],[25,9],[30,6],
-    [3,16],[9,14],[16,18],[23,15],[29,17],[5,23],[12,21],[19,25],[26,22],[31,20],
-    [1,28],[8,27],[15,30],[22,28],[28,26],
-  ];
-  pts.forEach(([x,y]) => {
-    fill(ctx, x, y, 2, 2, Math.random() > 0.5 ? C.grassLight : C.grassDark);
-  });
+  // shadow
+  px(ctx, 10, H - 6, W - 20, 4, 'rgba(0,0,0,0.18)');
 
-  // Tiny grass blades
-  [[5,6],[13,19],[22,8],[28,24],[8,27],[19,13]].forEach(([x,y]) => {
-    fill(ctx, x,   y,   1, 3, C.grassDark);
-    fill(ctx, x+1, y+1, 1, 2, C.grassLight);
-  });
-}
+  // trunk
+  px(ctx, cx - 4, H - 22, 8, 18, P.trunk);
+  px(ctx, cx - 4, H - 22, 2, 18, P.trunkDk);
 
-function drawRoad(ctx, dir) {
-  fill(ctx, 0, 0, TILE, TILE, C.roadBase);
+  // canopy — stacked blocks forming a round bushy shape
+  const canopy = variant === 0
+    ? [[14,4,20,10],[8,12,32,12],[6,22,36,12],[10,34,28,8]]
+    : [[16,2,16,10],[10,10,28,12],[8,20,32,12],[12,32,24,8]];
 
-  // Texture dots
-  [[3,3],[10,6],[18,2],[25,5],[6,14],[14,11],[22,15],[29,12],
-   [2,22],[9,19],[17,23],[24,20],[7,28],[15,26],[23,29],[30,25]].forEach(([x,y]) => {
-    fill(ctx, x, y, 2, 1, C.roadLight);
-    fill(ctx, x+1, y+1, 1, 1, C.roadDark);
-  });
-
-  // Edge lines
-  if (dir === 'h' || dir === 'c') {
-    fill(ctx, 0, 0, TILE, 2, C.roadDark);
-    fill(ctx, 0, TILE-2, TILE, 2, C.roadDark);
-    // Center dashes
-    for (let x = 4; x < TILE; x += 8) fill(ctx, x, 15, 4, 2, C.roadLight);
+  // base leaf
+  canopy.forEach(([x, y, w, h]) => px(ctx, x, y, w, h, P.leaf));
+  // dark underside
+  canopy.forEach(([x, y, w, h]) => px(ctx, x, y + h - 3, w, 3, P.leafLo));
+  // highlights top-left
+  canopy.forEach(([x, y, w]) => px(ctx, x + 2, y + 1, (w / 2) | 0, 2, P.leafHi));
+  // a couple of leaf clusters
+  const r = rng(variant * 999 + 5);
+  for (let i = 0; i < 6; i++) {
+    const x = 12 + ((r() * 24) | 0), y = 8 + ((r() * 26) | 0);
+    px(ctx, x, y, 3, 3, r() > 0.5 ? P.leafHi : P.leafLo);
   }
-  if (dir === 'v' || dir === 'c') {
-    fill(ctx, 0, 0, 2, TILE, C.roadDark);
-    fill(ctx, TILE-2, 0, 2, TILE, C.roadDark);
-    // Center dashes
-    for (let y = 4; y < TILE; y += 8) fill(ctx, 15, y, 2, 4, C.roadLight);
+  tex.refresh();
+}
+
+// ── bush ────────────────────────────────────────────────────────────────────
+function makeBush(scene) {
+  const W = 32, H = 28;
+  const { tex, ctx } = canvas(scene, 'bush', W, H);
+  px(ctx, 5, H - 5, W - 10, 3, 'rgba(0,0,0,0.15)');
+  const blob = [[8,6,16,8],[4,12,24,10],[8,20,16,5]];
+  blob.forEach(([x, y, w, h]) => px(ctx, x, y, w, h, P.bush));
+  blob.forEach(([x, y, w, h]) => px(ctx, x, y + h - 2, w, 2, P.bushLo));
+  px(ctx, 7, 8, 8, 2, P.bushHi);
+  px(ctx, 6, 14, 10, 2, P.bushHi);
+  // berries
+  px(ctx, 12, 13, 2, 2, '#e8556d');
+  px(ctx, 18, 16, 2, 2, '#e8556d');
+  tex.refresh();
+}
+
+// ── rock ──────────────────────────────────────────────────────────────────
+function makeRock(scene) {
+  const W = 28, H = 22;
+  const { tex, ctx } = canvas(scene, 'rock', W, H);
+  px(ctx, 4, H - 4, W - 8, 3, 'rgba(0,0,0,0.15)');
+  const blob = [[8,4,12,6],[4,10,20,8],[6,16,16,4]];
+  blob.forEach(([x, y, w, h]) => px(ctx, x, y, w, h, P.rock));
+  blob.forEach(([x, y, w, h]) => px(ctx, x, y + h - 2, w, 2, P.rockLo));
+  px(ctx, 9, 5, 6, 2, P.rockHi);
+  px(ctx, 6, 11, 8, 2, P.rockHi);
+  tex.refresh();
+}
+
+// ── flower (tiny, sits on grass) ────────────────────────────────────────────
+function makeFlower(scene, key, color, hi) {
+  const S = 12;
+  const { tex, ctx } = canvas(scene, key, S, S);
+  // stem
+  px(ctx, 5, 7, 1, 4, P.grassLo);
+  // petals (plus shape)
+  px(ctx, 4, 4, 4, 4, color);
+  px(ctx, 5, 3, 2, 6, color);
+  px(ctx, 3, 5, 6, 2, color);
+  // highlight + center
+  px(ctx, 5, 4, 1, 1, hi);
+  px(ctx, 5, 5, 2, 2, '#f9e26a');
+  tex.refresh();
+}
+
+// ── pond (organic blob, two shimmer frames) ─────────────────────────────────
+function makePond(scene, key, frame) {
+  const W = 192, H = 144, PXS = 2;
+  const { tex, ctx } = canvas(scene, key, W, H);
+  const cx = W / 2, cy = H / 2;
+  const rx = 78, ry = 56;
+
+  for (let py = 0; py < H; py += PXS) {
+    for (let pxx = 0; pxx < W; pxx += PXS) {
+      const nx = (pxx - cx) / rx;
+      const ny = (py - cy) / ry;
+      const ang = Math.atan2(ny, nx);
+      // organic wobble on the edge
+      const wob = 0.10 * Math.sin(ang * 3) + 0.06 * Math.sin(ang * 5 + 1.3);
+      const d = Math.sqrt(nx * nx + ny * ny) / (1 + wob);
+
+      let c = null;
+      if (d < 0.62) {
+        c = P.water;
+        // shimmer ripples
+        const rip = Math.sin((pxx * 0.18) + (py * 0.12) + frame * 1.7);
+        if (rip > 0.75) c = P.waterHi;
+      } else if (d < 0.92) {
+        c = P.waterLo;
+        const rip = Math.sin((pxx * 0.2) - (py * 0.1) + frame * 2.1);
+        if (rip > 0.82) c = P.water;
+      } else if (d < 1.0) {
+        c = P.sand;
+      } else if (d < 1.08) {
+        c = P.sandDk;
+      } else if (d < 1.16) {
+        c = P.grassDk; // blend into grass
+      }
+      if (c) px(ctx, pxx, py, PXS, PXS, c);
+    }
   }
-}
 
-function drawHouse(ctx, w, h) {
-  // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.2)';
-  ctx.fillRect(4, 34, 24, 6);
+  // lily pads (static, both frames)
+  const pads = [[cx - 30, cy - 10], [cx + 24, cy + 6], [cx - 8, cy + 22]];
+  pads.forEach(([x, y]) => {
+    px(ctx, x - 4, y - 3, 10, 7, P.leaf);
+    px(ctx, x - 4, y + 2, 10, 2, P.leafLo);
+    px(ctx, x - 2, y - 2, 4, 2, P.leafHi);
+    px(ctx, x, y, 2, 2, '#f4c1d4'); // tiny flower
+  });
 
-  // Wall
-  fill(ctx, 4, 18, 24, 18, C.houseWall);
-  fill(ctx, 4, 30, 24, 2, C.houseWallDk); // base shadow
-
-  // Roof (triangle-ish)
-  fill(ctx, 2, 10, 28, 10, C.houseRoof);
-  fill(ctx, 4,  6, 24,  6, C.houseRoof);
-  fill(ctx, 8,  2, 16,  6, C.houseRoofDk);
-  fill(ctx, 2, 18,  2,  2, C.houseRoofDk); // left edge
-  fill(ctx,28, 18,  2,  2, C.houseRoofDk); // right edge
-
-  // Outline top
-  fill(ctx, 0,  8,  2,  12, C.outline);
-  fill(ctx,30,  8,  2,  12, C.outline);
-
-  // Door
-  fill(ctx, 13, 26, 8, 10, C.houseDoor);
-  fill(ctx, 14, 27, 2,  4, '#a06030'); // highlight
-
-  // Windows
-  fill(ctx,  6, 22, 8, 6, C.houseWin);
-  fill(ctx, 20, 22, 8, 6, C.houseWin);
-  // Window frames
-  fill(ctx,  6, 22, 8, 1, C.houseWinFr);
-  fill(ctx,  6, 22, 1, 6, C.houseWinFr);
-  fill(ctx, 20, 22, 8, 1, C.houseWinFr);
-  fill(ctx, 20, 22, 1, 6, C.houseWinFr);
-
-  // Chimney
-  fill(ctx, 22, 0, 5, 8, C.houseWallDk);
-  fill(ctx, 22, 0, 5, 2, '#555');
-}
-
-function drawCursor(ctx) {
-  ctx.strokeStyle = '#ffd700';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([4, 4]);
-  ctx.strokeRect(2, 2, TILE - 4, TILE - 4);
-}
-
-function fill(ctx, x, y, w, h, color) {
-  ctx.fillStyle = color;
-  ctx.fillRect(x, y, w, h);
+  tex.refresh();
 }

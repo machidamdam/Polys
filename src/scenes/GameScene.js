@@ -1,16 +1,8 @@
 import { TILE, generateTextures } from '../utils/PixelArtGen.js';
 
-const COLS = 20;
-const ROWS = 20;
-
-const EMPTY = 0;
-const ROAD  = 1;
-const HOUSE = 2;
-
-const COSTS = {
-  road:  { wood: 2,  gold: 0 },
-  house: { wood: 10, gold: 20 },
-};
+const COLS = 28;
+const ROWS = 24;
+const SEED = 20260613;
 
 export default class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -18,256 +10,164 @@ export default class GameScene extends Phaser.Scene {
   create() {
     generateTextures(this);
 
-    this.grid = Array.from({ length: ROWS }, () => new Array(COLS).fill(EMPTY));
-
     // Camera state
-    this.camX = 0;
-    this.camY = 0;
-    this.zoom  = 1;
+    this.camX = 0; this.camY = 0; this.zoom = 1.4;
 
-    // Containers (world-space)
     this.world = this.add.container(0, 0);
-    this.tileLayer     = this.add.container(0, 0);
-    this.buildingLayer = this.add.container(0, 0);
-    this.cursorLayer   = this.add.container(0, 0);
-    this.world.add([this.tileLayer, this.buildingLayer, this.cursorLayer]);
+    this.tileLayer = this.add.container(0, 0);
+    this.decoLayer = this.add.container(0, 0);
+    this.world.add([this.tileLayer, this.decoLayer]);
 
-    this.drawAllTiles();
-
-    // Cursor sprite
-    this.cursorSprite = this.add.image(0, 0, 'cursor').setOrigin(0, 0).setVisible(false);
-    this.cursorLayer.add(this.cursorSprite);
-
-    // Resources
-    this.res = { wood: 80, gold: 100, pop: 0, houses: 0 };
-
-    this.mode = null; // 'road' | 'house' | null
-
+    this.buildMap();
     this.setupInput();
-    this.setupUI();
     this.centerCamera();
-    this.updateUI();
+
+    // gentle water shimmer
+    this.shimmer = 0;
+    this.time.addEvent({
+      delay: 650, loop: true,
+      callback: () => {
+        this.shimmer ^= 1;
+        if (this.pond) this.pond.setTexture(this.shimmer ? 'pond_b' : 'pond_a');
+      },
+    });
+
+    // soft framing vignette (screen-space)
+    this.addVignette();
+
+    // tiny hint that fades
+    const hint = this.add.text(this.scale.width / 2, this.scale.height - 30,
+      'Glisse pour explorer · pince pour zoomer', {
+        fontFamily: 'monospace', fontSize: '12px', color: '#ffffff',
+        backgroundColor: '#0e1a2eaa', padding: { x: 10, y: 5 },
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1000);
+    this.tweens.add({ targets: hint, alpha: 0, delay: 3500, duration: 1500,
+      onComplete: () => hint.destroy() });
   }
 
-  // ─── MAP ──────────────────────────────────────────────────────────────────
+  buildMap() {
+    const r = rng(SEED);
 
-  drawAllTiles() {
-    this.tileLayer.removeAll(true);
-    this.buildingLayer.removeAll(true);
+    // ── grass base ──
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        const variant = (r() * 4) | 0;
+        const t = this.add.image(col * TILE, row * TILE, `grass${variant}`).setOrigin(0, 0);
+        this.tileLayer.add(t);
+      }
+    }
 
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const val = this.grid[r][c];
-        const x = c * TILE;
-        const y = r * TILE;
+    // ── pond (placed roughly center-left) ──
+    const pondCX = COLS * TILE * 0.40;
+    const pondCY = ROWS * TILE * 0.52;
+    this.pond = this.add.image(pondCX, pondCY, 'pond_a').setOrigin(0.5, 0.5);
+    this.pond.setDepth(pondCY);
+    this.decoLayer.add(this.pond);
+    const pondR = 110; // keep decorations away from water
 
-        if (val === ROAD) {
-          const key = this.roadKey(c, r);
-          this.tileLayer.add(this.add.image(x, y, key).setOrigin(0, 0));
-        } else {
-          this.tileLayer.add(this.add.image(x, y, 'grass').setOrigin(0, 0));
-        }
+    // ── scatter decorations ──
+    const occupied = (x, y) => Phaser.Math.Distance.Between(x, y, pondCX, pondCY) < pondR;
 
-        if (val === HOUSE) {
-          const sprite = this.add.image(x, y - 8, 'house').setOrigin(0, 0);
-          this.buildingLayer.add(sprite);
-        }
+    const place = (key, originY, count, depthBias = 0) => {
+      let tries = 0, made = 0;
+      while (made < count && tries < count * 30) {
+        tries++;
+        const x = 40 + r() * (COLS * TILE - 80);
+        const y = 40 + r() * (ROWS * TILE - 80);
+        if (occupied(x, y)) continue;
+        const s = this.add.image(x, y, key).setOrigin(0.5, originY);
+        s.setDepth(y + depthBias);
+        this.decoLayer.add(s);
+        made++;
+      }
+    };
+
+    // trees around the edges look natural — place plenty
+    place('tree0', 1, 9);
+    place('tree1', 1, 9);
+    place('bush', 1, 8);
+    place('rock', 1, 6);
+
+    // flower clusters
+    const flowers = ['flower_r', 'flower_y', 'flower_w', 'flower_p'];
+    for (let cluster = 0; cluster < 10; cluster++) {
+      const cxp = 50 + r() * (COLS * TILE - 100);
+      const cyp = 50 + r() * (ROWS * TILE - 100);
+      if (occupied(cxp, cyp)) continue;
+      const kind = flowers[(r() * flowers.length) | 0];
+      const n = 3 + ((r() * 4) | 0);
+      for (let i = 0; i < n; i++) {
+        const fx = cxp + (r() - 0.5) * 40;
+        const fy = cyp + (r() - 0.5) * 40;
+        const f = this.add.image(fx, fy, kind).setOrigin(0.5, 1);
+        f.setDepth(fy);
+        this.decoLayer.add(f);
       }
     }
   }
 
-  roadKey(c, r) {
-    const h = (c > 0 && this.grid[r][c-1] === ROAD) || (c < COLS-1 && this.grid[r][c+1] === ROAD);
-    const v = (r > 0 && this.grid[r-1][c] === ROAD) || (r < ROWS-1 && this.grid[r+1][c] === ROAD);
-    if (h && v) return 'road_c';
-    if (v)      return 'road_v';
-    return 'road_h';
+  addVignette() {
+    const { width, height } = this.scale;
+    const g = this.add.graphics().setScrollFactor(0).setDepth(900);
+    const edge = 0x0a1424;
+    // top & bottom soft bands
+    for (let i = 0; i < 60; i++) {
+      const a = (1 - i / 60) * 0.5;
+      g.fillStyle(edge, a);
+      g.fillRect(0, i, width, 1);
+      g.fillRect(0, height - 1 - i, width, 1);
+    }
   }
 
-  // ─── CAMERA ───────────────────────────────────────────────────────────────
-
+  // ── camera ──
   centerCamera() {
     const { width, height } = this.scale;
-    const mapW = COLS * TILE * this.zoom;
-    const mapH = ROWS * TILE * this.zoom;
-    this.camX = (width  - mapW) / 2;
-    this.camY = (height - mapH) / 2 + 20;
-    this.applyCamera();
+    this.camX = (width - COLS * TILE * this.zoom) / 2;
+    this.camY = (height - ROWS * TILE * this.zoom) / 2;
+    this.apply();
   }
 
-  applyCamera() {
+  apply() {
     this.world.setPosition(this.camX, this.camY);
     this.world.setScale(this.zoom);
   }
 
-  screenToTile(sx, sy) {
-    const wx = (sx - this.camX) / this.zoom;
-    const wy = (sy - this.camY) / this.zoom;
-    return { c: Math.floor(wx / TILE), r: Math.floor(wy / TILE) };
-  }
-
-  // ─── INPUT ────────────────────────────────────────────────────────────────
-
   setupInput() {
-    let dragStart = null;
-    let moved = false;
+    let drag = null;
     this.prevPinch = null;
+    this.input.addPointer(1);
 
-    this.input.on('pointerdown', p => {
-      dragStart = { px: p.x, py: p.y, cx: this.camX, cy: this.camY };
-      moved = false;
-    });
+    this.input.on('pointerdown', p => { drag = { px: p.x, py: p.y, cx: this.camX, cy: this.camY }; });
 
     this.input.on('pointermove', p => {
-      // Pinch zoom (2 fingers)
       const ptrs = this.input.manager.pointers.filter(pt => pt.isDown);
       if (ptrs.length === 2) {
         const d = Phaser.Math.Distance.Between(ptrs[0].x, ptrs[0].y, ptrs[1].x, ptrs[1].y);
         if (this.prevPinch !== null) {
-          this.zoom = Phaser.Math.Clamp(this.zoom + (d - this.prevPinch) * 0.006, 0.5, 3);
-          this.applyCamera();
+          this.zoom = Phaser.Math.Clamp(this.zoom + (d - this.prevPinch) * 0.006, 0.7, 3.5);
+          this.apply();
         }
         this.prevPinch = d;
-        moved = true;
         return;
       }
       this.prevPinch = null;
-
-      if (!dragStart) return;
-      const dx = p.x - dragStart.px;
-      const dy = p.y - dragStart.py;
-      if (Math.abs(dx) > 6 || Math.abs(dy) > 6) moved = true;
-      if (moved) {
-        this.camX = dragStart.cx + dx;
-        this.camY = dragStart.cy + dy;
-        this.applyCamera();
-      }
-
-      // Move cursor
-      if (this.mode) {
-        const { c, r } = this.screenToTile(p.x, p.y);
-        if (this.inBounds(c, r)) {
-          this.cursorSprite.setPosition(c * TILE, r * TILE).setVisible(true);
-        }
-      }
+      if (!drag) return;
+      this.camX = drag.cx + (p.x - drag.px);
+      this.camY = drag.cy + (p.y - drag.py);
+      this.apply();
     });
 
-    this.input.on('pointerup', p => {
-      if (!moved && this.mode) {
-        const { c, r } = this.screenToTile(p.x, p.y);
-        this.tryPlace(c, r);
-      }
-      dragStart = null;
-    });
-
-    // Wheel zoom (desktop / trackpad)
+    this.input.on('pointerup', () => { drag = null; });
     this.input.on('wheel', (_, __, ___, dy) => {
-      this.zoom = Phaser.Math.Clamp(this.zoom - dy * 0.001, 0.5, 3);
-      this.applyCamera();
+      this.zoom = Phaser.Math.Clamp(this.zoom - dy * 0.001, 0.7, 3.5);
+      this.apply();
     });
-
-    this.input.addPointer(1);
-  }
-
-  // ─── BUILD ────────────────────────────────────────────────────────────────
-
-  tryPlace(c, r) {
-    if (!this.inBounds(c, r)) return;
-    if (this.grid[r][c] !== EMPTY) {
-      this.toast('Emplacement déjà occupé !');
-      return;
-    }
-
-    const cost = COSTS[this.mode];
-    if (this.res.wood < cost.wood || this.res.gold < cost.gold) {
-      this.toast('Ressources insuffisantes !');
-      return;
-    }
-
-    this.res.wood -= cost.wood;
-    this.res.gold -= cost.gold;
-
-    if (this.mode === 'road') {
-      this.grid[r][c] = ROAD;
-    } else if (this.mode === 'house') {
-      this.grid[r][c] = HOUSE;
-      this.res.pop  += 5;
-      this.res.houses += 1;
-    }
-
-    this.drawAllTiles();
-    this.updateUI();
-  }
-
-  inBounds(c, r) {
-    return c >= 0 && c < COLS && r >= 0 && r < ROWS;
-  }
-
-  // ─── UI ───────────────────────────────────────────────────────────────────
-
-  setupUI() {
-    const { width, height } = this.scale;
-
-    // ── Top bar ──
-    this.add.rectangle(0, 0, width, 44, 0x1a0a2e).setOrigin(0, 0);
-    this.add.rectangle(0, 44, width, 2, 0xffd700).setOrigin(0, 0);
-
-    const ts = { fontFamily: 'monospace', fontSize: '13px', color: '#ffd700' };
-    this.txtWood = this.add.text(10,  14, '', ts);
-    this.txtGold = this.add.text(110, 14, '', ts);
-    this.txtPop  = this.add.text(210, 14, '', ts);
-
-    // ── Bottom bar ──
-    const bh = 70;
-    const by = height - bh;
-    this.add.rectangle(0, by, width, bh, 0x1a0a2e).setOrigin(0, 0);
-    this.add.rectangle(0, by, width, 2, 0xffd700).setOrigin(0, 0);
-
-    this.btnRoad  = this.makeBtn(width / 2 - 70, by + 10, '🛤️  Route\n(-2 bois)', 'road');
-    this.btnHouse = this.makeBtn(width / 2 + 70, by + 10, '🏠 Maison\n(-10🪵 -20💰)', 'house');
-
-    // Cancel button (top-right)
-    this.btnCancel = this.add.text(width - 10, 14, '✕', {
-      fontFamily: 'monospace', fontSize: '18px', color: '#ff6060',
-    }).setOrigin(1, 0.5).setInteractive().setVisible(false);
-    this.btnCancel.on('pointerdown', () => this.setMode(null));
-  }
-
-  makeBtn(cx, y, label, mode) {
-    const bg = this.add.rectangle(cx, y + 25, 120, 50, 0x2a1a4e).setInteractive();
-    const txt = this.add.text(cx, y + 25, label, {
-      fontFamily: 'monospace', fontSize: '11px', color: '#ffffff', align: 'center',
-    }).setOrigin(0.5);
-    bg.on('pointerdown', () => this.setMode(mode));
-    return { bg, txt };
-  }
-
-  setMode(m) {
-    this.mode = m;
-    const active = 0x4a3a8e;
-    const idle   = 0x2a1a4e;
-    this.btnRoad.bg.setFillStyle( m === 'road'  ? active : idle);
-    this.btnHouse.bg.setFillStyle(m === 'house' ? active : idle);
-    this.cursorSprite.setVisible(false);
-    this.btnCancel.setVisible(m !== null);
-    if (!m) this.cursorSprite.setVisible(false);
-  }
-
-  updateUI() {
-    const r = this.res;
-    this.txtWood.setText(`🪵 ${r.wood}`);
-    this.txtGold.setText(`💰 ${r.gold}`);
-    this.txtPop.setText(`👤 ${r.pop}`);
-  }
-
-  toast(msg) {
-    const { width, height } = this.scale;
-    const t = this.add.text(width / 2, height / 2 - 60, msg, {
-      fontFamily: 'monospace', fontSize: '14px', color: '#fff',
-      backgroundColor: '#1a0a2eee', padding: { x: 14, y: 7 },
-    }).setOrigin(0.5).setDepth(100);
-    this.tweens.add({ targets: t, y: t.y - 30, alpha: 0, duration: 1600, onComplete: () => t.destroy() });
   }
 
   update() {}
+}
+
+function rng(seed) {
+  let s = seed >>> 0;
+  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
 }
