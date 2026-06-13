@@ -4,60 +4,51 @@ export default class MenuScene extends Phaser.Scene {
   create() {
     const { width, height } = this.scale;
 
-    // Gradient background
-    const bg = this.add.graphics();
-    bg.fillGradientStyle(0x1a0a2e, 0x1a0a2e, 0x0d2a5e, 0x0d2a5e, 1);
-    bg.fillRect(0, 0, width, height);
+    // Background
+    this.add.rectangle(0, 0, width, height, 0x0e1a2e).setOrigin(0, 0);
 
     // Stars
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 50; i++) {
       const x = Phaser.Math.Between(0, width);
-      const y = Phaser.Math.Between(0, height * 0.6);
-      const s = Phaser.Math.FloatBetween(1, 3);
-      this.add.rectangle(x, y, s, s, 0xffffff, Phaser.Math.FloatBetween(0.4, 1));
+      const y = Phaser.Math.Between(0, height * 0.55);
+      const a = Phaser.Math.FloatBetween(0.3, 1);
+      this.add.rectangle(x, y, 2, 2, 0xffffff, a);
     }
 
     // Title
-    this.add.text(width / 2, height * 0.22, 'POLYS', {
+    this.add.text(width / 2, height * 0.25, 'POLYS', {
       fontFamily: 'monospace',
-      fontSize: '52px',
+      fontSize: '56px',
       color: '#ffd700',
-      stroke: '#8b4a00',
-      strokeThickness: 4,
+      stroke: '#7a4000',
+      strokeThickness: 5,
     }).setOrigin(0.5);
 
-    this.add.text(width / 2, height * 0.35, 'Cité des Dieux', {
+    this.add.text(width / 2, height * 0.38, 'Bâtis ta cité grecque', {
       fontFamily: 'monospace',
-      fontSize: '18px',
+      fontSize: '16px',
       color: '#c8a850',
     }).setOrigin(0.5);
 
-    // Lightning decoration
-    this.add.text(width / 2, height * 0.48, '⚡', {
-      fontSize: '40px',
-    }).setOrigin(0.5);
+    // Simple house pixel art preview
+    this.add.text(width / 2, height * 0.52, '🏛️', { fontSize: '48px' }).setOrigin(0.5);
 
     // Play button
-    const btnY = height * 0.65;
-    const btn = this.add.rectangle(width / 2, btnY, 200, 52, 0xffd700).setInteractive();
-    this.add.text(width / 2, btnY, 'JOUER', {
-      fontFamily: 'monospace',
-      fontSize: '22px',
-      color: '#1a0a2e',
+    const btn = this.add.rectangle(width / 2, height * 0.70, 180, 50, 0xffd700).setInteractive();
+    this.add.text(width / 2, height * 0.70, 'COMMENCER', {
+      fontFamily: 'monospace', fontSize: '18px', color: '#1a0a2e',
     }).setOrigin(0.5);
 
-    btn.on('pointerover', () => btn.setFillStyle(0xffe44a));
-    btn.on('pointerout', () => btn.setFillStyle(0xffd700));
     btn.on('pointerdown', () => {
-      this.cameras.main.fadeOut(400, 0, 0, 0);
-      this.time.delayedCall(400, () => this.scene.start('GameScene'));
+      this.cameras.main.fadeOut(300, 0, 0, 0);
+      this.time.delayedCall(300, () => this.scene.start('GameScene'));
     });
 
-    // Version
-    this.add.text(width / 2, height - 20, 'v0.1 - Zeus Pixel Art', {
-      fontFamily: 'monospace', fontSize: '10px', color: '#444488',
+    // Hint
+    this.add.text(width / 2, height * 0.83, 'Pose des maisons et des routes\npour agrandir ta ville', {
+      fontFamily: 'monospace', fontSize: '12px', color: '#6688aa', align: 'center',
     }).setOrigin(0.5);
 
-    this.cameras.main.fadeIn(600);
+    this.cameras.main.fadeIn(400);
   }
 }
