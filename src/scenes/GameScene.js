@@ -1,4 +1,4 @@
-import { TILE, generateTextures, makePlateau } from '../utils/PixelArtGen.js?v=17';
+import { TILE, generateTextures, makePlateau } from '../utils/PixelArtGen.js?v=18';
 
 const COLS = 36;
 const ROWS = 52;
