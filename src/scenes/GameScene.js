@@ -1,4 +1,4 @@
-import { TILE, generateTextures, makeHighlandCliff, highlandMask } from '../utils/PixelArtGen.js?v=20';
+import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=21';
 
 const COLS = 36;
 const ROWS = 52;
@@ -9,6 +9,13 @@ const MAP_H = ROWS * TILE;
 
 export default class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
+
+  preload() {
+    // hand-made pixel-art relief blocks (grass top + rocky cliff + ramp)
+    this.load.image('relief_plateau', 'assets/relief_plateau.png?v=21');
+    this.load.image('relief_block',   'assets/relief_block.png?v=21');
+    this.load.image('relief_ramp',    'assets/relief_ramp.png?v=21');
+  }
 
   create() {
     generateTextures(this);
@@ -75,17 +82,11 @@ export default class GameScene extends Phaser.Scene {
     this.water = [];
     for (let c = 0; c < COLS; c++) this.water[c] = this.waterLevel(c);
 
-    // ── HIGHLAND — a large raised region anchored in the NW corner ──
-    // ellipse hugging the top-left; its SE arc is the cliff edge to the lowland
-    const region = { cx: COLS * 0.04, cy: -ROWS * 0.06,
-                     Rx: COLS * 0.62, Ry: ROWS * 0.46, ph: [0.7, 2.3, 4.1] };
-    const { isHi } = highlandMask(region);
-    // ramps (boundary angles, radians) cut through the cliff: the only ways up
-    const ramps = [0.32, 0.86, 1.30];
-    // a tile is on the rocky cliff band if the highland state flips next to it
-    const onCliff = (col, row) =>
-      isHi(col, row) !== isHi(col + 1, row) || isHi(col, row) !== isHi(col, row + 1) ||
-      isHi(col, row) !== isHi(col - 1, row) || isHi(col, row) !== isHi(col, row - 1);
+    // ── RELIEF — real pixel-art plateau blocks placed as a raised massif ──
+    // (grass top, rocky cliff face, reached by a ramp) in the NW grassland
+    const relief = { c: COLS * 0.30, r: ROWS * 0.30 };
+    const onRelief = (col, row) =>
+      ((col - relief.c) / 6.5) ** 2 + ((row - relief.r) / 4.5) ** 2 < 1;
 
     // marble deposit: a flat whitish-grey rock patch in the grassland (Zeus)
     const marble = { c: COLS * 0.30, r: ROWS * 0.64, rad: 3.4 };
@@ -118,17 +119,19 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // ── HIGHLAND CLIFF — one sprite: the rocky wall wrapping the raised corner ──
-    makeHighlandCliff(this, 'highland', COLS, ROWS, region, ramps, SEED + 777);
-    const cliff = this.add.image(0, 0, 'highland').setOrigin(0, 0);
-    // depth ≈ the cliff base: lowland trees (further south) overlap in front,
-    // highland trees (north of the wall) stay behind it
-    cliff.setDepth(Math.round((region.cy + region.Ry) * TILE + 30));
-    this.decoLayer.add(cliff);
+    // place a relief block; depth from its ground-contact row so it sorts with trees
+    const placeRelief = (key, col, row, scale) => {
+      const img = this.add.image(col * TILE, row * TILE, key)
+        .setOrigin(0.5, 0.9).setScale(scale).setDepth(row * TILE);
+      this.decoLayer.add(img);
+    };
+    placeRelief('relief_block',   relief.c - 2.6, relief.r - 1.3, 1.05);  // back mass
+    placeRelief('relief_plateau', relief.c + 0.2, relief.r,       1.18);  // main plateau
+    placeRelief('relief_ramp',    relief.c - 0.4, relief.r + 2.3, 1.02);  // access ramp (front)
 
     const isLand = (col, row) =>
       col >= 0 && col < COLS && row >= 1 && row < this.water[col] - 2 &&
-      !onCliff(col, row) && !inMarble(col, row);
+      !onRelief(col, row) && !inMarble(col, row);
 
     const addDeco = (key, col, row) => {
       const x = col * TILE + TILE / 2 + (r() - 0.5) * 18;
@@ -153,14 +156,13 @@ export default class GameScene extends Phaser.Scene {
     };
 
     // ── ZONES ──
-    // Forests → timber: two in the lowland plains, one up on the highland.
-    cluster(['cypress', 'olive', 'olive', 'cypress', 'shrub'], COLS * 0.78, ROWS * 0.40, 6, 48);
-    cluster(['olive', 'cypress', 'cypress', 'olive', 'shrub'], COLS * 0.30, ROWS * 0.74, 5, 40);
-    cluster(['cypress', 'olive', 'cypress', 'shrub'],          COLS * 0.30, ROWS * 0.14, 5, 30);
+    // Two timber forests on the open plains, well clear of the relief.
+    cluster(['cypress', 'olive', 'olive', 'cypress', 'shrub'], COLS * 0.78, ROWS * 0.44, 6, 50);
+    cluster(['olive', 'cypress', 'cypress', 'olive', 'shrub'], COLS * 0.34, ROWS * 0.74, 5, 40);
 
-    // a few loose boulders spilling into the lowland near the cliff base
-    cluster(['rock', 'shrub'], COLS * 0.46, ROWS * 0.30, 4, 7);
-    cluster(['rock', 'shrub'], COLS * 0.10, ROWS * 0.48, 3, 5);
+    // loose boulders skirting the foot of the relief massif
+    cluster(['rock', 'shrub'], relief.c + 1, relief.r + 4, 3, 7);
+    cluster(['rock', 'shrub'], relief.c - 5, relief.r + 2, 2.5, 5);
 
     // ── meadow flowers across the open plains ──
     const flowers = ['flower_poppy', 'flower_lav', 'flower_daisy'];
