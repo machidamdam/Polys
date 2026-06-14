@@ -1,4 +1,4 @@
-import { TILE, generateTextures, makeMountain } from '../utils/PixelArtGen.js?v=16';
+import { TILE, generateTextures, makePlateau } from '../utils/PixelArtGen.js?v=17';
 
 const COLS = 36;
 const ROWS = 52;
@@ -106,25 +106,28 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // ── MOUNTAINS — faceted rocky massifs (relief + the stone resource) ──
-    const mountains = [
-      { c: COLS * 0.28, r: ROWS * 0.18, rad: 5 },
-      { c: COLS * 0.74, r: ROWS * 0.30, rad: 4 },
-      { c: COLS * 0.56, r: ROWS * 0.60, rad: 5 },
+    // ── PLATEAUX — raised flat areas surrounded by cliff rocks, Zeus-style ──
+    // Each plateau: anchor row = bottom of cliff face (ground level).
+    // The top surface occupies ~hT tile-rows above that anchor.
+    const plateaus = [
+      { c: COLS * 0.27, r: ROWS * 0.28, wT: 9, hT: 6, paths: [0.28, 0.72], rad: 6 },
+      { c: COLS * 0.70, r: ROWS * 0.44, wT: 7, hT: 5, paths: [0.50],       rad: 5 },
     ];
-    mountains.forEach((m, i) => {
-      const key = `mtn${i}`;
-      const geo = makeMountain(this, key, m.rad, SEED + i * 1234);
-      const mt = this.add.image(m.c * TILE, m.r * TILE, key).setOrigin(0.5, geo.originY);
-      mt.setDepth(m.r * TILE);   // sort by base so trees in front overlap correctly
-      this.decoLayer.add(mt);
+    plateaus.forEach((pl, i) => {
+      const key = `plateau${i}`;
+      const geo = makePlateau(this, key, pl.wT, pl.hT, pl.paths, SEED + i * 777);
+      const pt = this.add.image(pl.c * TILE, pl.r * TILE, key).setOrigin(0.5, geo.originY);
+      pt.setDepth(pl.r * TILE);
+      this.decoLayer.add(pt);
     });
-    const onMountain = (col, row) =>
-      mountains.some(m => Phaser.Math.Distance.Between(col, row, m.c, m.r) < m.rad + 0.5);
+    // exclude plateau area (circle centred on plateau top, not anchor)
+    const onPlateau = (col, row) =>
+      plateaus.some(pl =>
+        Phaser.Math.Distance.Between(col, row, pl.c, pl.r - pl.hT / 2) < pl.rad);
 
     const isLand = (col, row) =>
       col >= 0 && col < COLS && row >= 1 && row < this.water[col] - 2 &&
-      !onMountain(col, row) && !inMarble(col, row);
+      !onPlateau(col, row) && !inMarble(col, row);
 
     const addDeco = (key, col, row) => {
       const x = col * TILE + TILE / 2 + (r() - 0.5) * 18;
@@ -153,10 +156,9 @@ export default class GameScene extends Phaser.Scene {
     cluster(['cypress', 'olive', 'olive', 'cypress', 'shrub'], COLS * 0.16, ROWS * 0.46, 6, 52);
     cluster(['olive', 'cypress', 'cypress', 'olive', 'shrub'], COLS * 0.82, ROWS * 0.62, 6, 46);
 
-    // loose boulders / scree skirting the mountain bases
-    cluster(['rock', 'shrub'], COLS * 0.28, ROWS * 0.18, 6, 9);
-    cluster(['rock', 'shrub'], COLS * 0.56, ROWS * 0.60, 6, 9);
-    cluster(['rock', 'shrub'], COLS * 0.74, ROWS * 0.30, 5, 7);
+    // loose boulders / scree at the base of the plateaux
+    cluster(['rock', 'shrub'], COLS * 0.27, ROWS * 0.30, 7, 12);
+    cluster(['rock', 'shrub'], COLS * 0.70, ROWS * 0.46, 6, 9);
 
     // ── meadow flowers across the open plains ──
     const flowers = ['flower_poppy', 'flower_lav', 'flower_daisy'];

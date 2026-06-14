@@ -343,6 +343,104 @@ function makeRock(scene) {
   tex.refresh();
 }
 
+// ── PLATEAU — raised flat area surrounded by cliff rocks, Zeus-style ────────
+// pathFracs: array of 0..1 fractions along the south edge where paths cut through
+export function makePlateau(scene, key, wTiles, hTiles, pathFracs, seed) {
+  const CLIFF = 22;   // cliff face height (px)
+  const PAD   = 14;   // transparent padding around sprite
+  const W = wTiles * TILE + PAD * 2;
+  const H = hTiles * TILE + CLIFF + PAD + 8;
+  const { tex, ctx } = canvas(scene, key, W, H);
+  const r = rng(seed);
+
+  const tx = PAD, ty = PAD;
+  const tw = wTiles * TILE, th = hTiles * TILE;
+  const PATH_W = TILE * 2;
+
+  const inPath = (cx) => pathFracs.some(f => Math.abs(cx - f * tw) < PATH_W / 2);
+
+  // drop shadow
+  ctx.fillStyle = 'rgba(12,8,0,0.28)';
+  ctx.beginPath();
+  ctx.ellipse(tx + tw / 2 + 7, ty + th + CLIFF + 7, tw * 0.50, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ── cliff face (south edge) ──────────────────────────────────────────────
+  for (let x = 0; x < tw; x++) {
+    for (let y = 0; y < CLIFF; y++) {
+      const t = y / CLIFF;
+      if (inPath(x)) {
+        const c = t < 0.35 ? C.g2 : t < 0.65 ? C.g3 : C.m2;
+        px(ctx, tx + x, ty + th + y, 1, 1, c);
+      } else {
+        let c = t < 0.20 ? C.m0 : t < 0.52 ? C.m1 : t < 0.80 ? C.m2 : C.mOut;
+        if (((x * 5 + y * 3) % 9) === 0) c = (c === C.m2 ? C.m1 : c === C.m1 ? C.m0 : c);
+        px(ctx, tx + x, ty + th + y, 1, 1, c);
+      }
+    }
+    // dark cap at cliff top
+    if (!inPath(x)) { px(ctx, tx + x, ty + th, 1, 1, C.mOut); px(ctx, tx + x, ty + th + 1, 1, 1, C.mOut); }
+  }
+
+  // ── plateau top ──────────────────────────────────────────────────────────
+  const pg0 = '#cad272', pg1 = '#b8c060', pg2 = '#a0a84e';
+  for (let y = 0; y < th; y++) {
+    for (let x = 0; x < tw; x++) {
+      const corner = (x < 5 && y < 5) || (x > tw - 6 && y < 5) ||
+                     (x < 5 && y > th - 6) || (x > tw - 6 && y > th - 6);
+      if (corner) continue;
+      px(ctx, tx + x, ty + y, 1, 1, ((x ^ y) & 1) ? pg0 : pg1);
+    }
+  }
+  dither(ctx, tx + 4, ty + 4, tw - 8, 5, pg0, pg1);          // top highlight
+  dither(ctx, tx + 4, ty + th - 6, tw - 8, 4, pg1, pg2);      // bottom shadow before cliff
+  // grass tufts
+  for (let i = 0; i < 14; i++) {
+    const gx = (tx + 10 + r() * (tw - 20)) | 0;
+    const gy = (ty + 10 + r() * (th - 20)) | 0;
+    px(ctx, gx, gy, 1, 3, C.g3); px(ctx, gx + 1, gy + 1, 1, 2, pg0);
+  }
+
+  // ── rock border around plateau perimeter ─────────────────────────────────
+  const BW = 16, BH = 10, BSP = BW + 8;
+
+  const paintBoulder = (bx, by, bseed) => {
+    const br = rng(bseed);
+    const bw = ((BW * (0.75 + br() * 0.5)) | 0) + 1;
+    const bh = ((BH * (0.70 + br() * 0.5)) | 0) + 1;
+    for (let dy = -bh; dy <= bh; dy++) {
+      const hw = Math.floor(Math.sqrt(Math.max(0, bw * bw - (dy * bw / bh) ** 2)));
+      if (hw < 1) continue;
+      const t = (dy + bh) / (bh * 2);
+      const shd = t < 0.25 ? C.m0 : t < 0.60 ? C.m1 : C.m2;
+      px(ctx, bx - hw - 1, by + dy, hw * 2 + 3, 1, C.mOut);   // outline
+      px(ctx, bx - hw,     by + dy, 2,           1, C.m0);     // left lit
+      px(ctx, bx - hw + 2, by + dy, Math.max(0, hw * 2 - 4), 1, shd);
+      px(ctx, bx + hw - 1, by + dy, 1,           1, C.m2);     // right shadow
+    }
+  };
+
+  // south rocks (with path gaps)
+  for (let x = BSP / 2; x < tw; x += BSP)
+    if (!pathFracs.some(f => Math.abs(x - f * tw) < PATH_W / 2 + BW / 2))
+      paintBoulder(tx + x, ty + th - BH / 2 - 2, seed + (x | 0) * 7);
+
+  // north rocks
+  for (let x = BSP / 2; x < tw; x += BSP)
+    paintBoulder(tx + x, ty + BH / 2 + 3, seed + (x | 0) * 13 + 1000);
+
+  // west rocks
+  for (let y = BSP / 2; y < th; y += BSP)
+    paintBoulder(tx + BW / 2 + 2, ty + y, seed + (y | 0) * 11 + 2000);
+
+  // east rocks
+  for (let y = BSP / 2; y < th; y += BSP)
+    paintBoulder(tx + tw - BW / 2 - 2, ty + y, seed + (y | 0) * 17 + 3000);
+
+  tex.refresh();
+  return { W, H, originY: (ty + th + CLIFF) / H };
+}
+
 // ── FLOWER ──────────────────────────────────────────────────────────────────
 function makeFlower(scene, key, color, hi) {
   const W = 14, H = 14;
