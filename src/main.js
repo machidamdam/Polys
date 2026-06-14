@@ -1,13 +1,15 @@
-import MenuScene from './scenes/MenuScene.js?v=26';
-import IsoScene  from './scenes/IsoScene.js?v=26';
+import MenuScene    from './scenes/MenuScene.js?v=27';
+import TopDownScene from './scenes/TopDownScene.js?v=27';
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   width: window.innerWidth,
   height: window.innerHeight,
-  backgroundColor: '#1a4a6e',   // sea blue — shows under transparent tile areas
-  pixelArt: false,              // isometric sprites use anti-aliasing
-  scene: [MenuScene, IsoScene],
+  backgroundColor: '#3a5c1e',   // dark grass — no gaps visible even at seams
+  pixelArt: true,               // nearest-neighbour scaling = crisp pixels
+  antialias: false,
+  roundPixels: true,
+  scene: [MenuScene, TopDownScene],
   scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH },
   input: { touch: true },
 });
