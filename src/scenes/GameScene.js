@@ -1,4 +1,4 @@
-import { TILE, generateTextures, makePlateau } from '../utils/PixelArtGen.js?v=22';
+import { TILE, generateTextures, makePlateauDef, makeCliffFaces } from '../utils/PixelArtGen.js?v=23';
 
 const COLS = 36;
 const ROWS = 52;
@@ -75,20 +75,28 @@ export default class GameScene extends Phaser.Scene {
     this.water = [];
     for (let c = 0; c < COLS; c++) this.water[c] = this.waterLevel(c);
 
-    // ── PLATEAUX — organic raised mesas with stacked limestone cliff faces ──
-    const plateaus = [
-      { c: COLS * 0.30, r: ROWS * 0.28, wT: 10, hT: 7, paths: [0.25, 0.70], rad: 7 },
-      { c: COLS * 0.74, r: ROWS * 0.42, wT:  7, hT: 5, paths: [0.55],       rad: 5 },
+    // ── PLATEAUX — define organic outlines (shared by tiles + cliff sprites) ──
+    // cx/cy in tile coords, rx/ry = semi-axes in tiles
+    const platDefs = [
+      makePlateauDef(COLS * 0.28, ROWS * 0.26, 7.5, 5.0, SEED + 111),
+      makePlateauDef(COLS * 0.74, ROWS * 0.40, 5.5, 3.8, SEED + 222),
     ];
-    const onPlateau = (col, row) =>
-      plateaus.some(pl => ((col - pl.c) / (pl.rad * 1.1)) ** 2 + ((row - pl.r) / (pl.rad * 0.85)) ** 2 < 1);
+    const platPaths = [[0.22, 0.70], [0.50]];
 
-    // marble deposit: a flat whitish-grey rock patch in the grassland (Zeus)
-    const marble = { c: COLS * 0.30, r: ROWS * 0.64, rad: 3.4 };
+    // tile-level check: is (col,row) inside any plateau?
+    const onPlateau = (col, row) => platDefs.some(d => d.inside(col, row));
+    // exclude 1-tile band around the edge too (keeps deco away from cliff)
+    const nearPlateau = (col, row) =>
+      platDefs.some(d =>
+        d.inside(col, row) || d.inside(col-1,row) || d.inside(col+1,row) ||
+        d.inside(col,row-1) || d.inside(col,row+1));
+
+    // marble deposit in the lowland
+    const marble = { c: COLS * 0.62, r: ROWS * 0.62, rad: 3.4 };
     const inMarble = (col, row) =>
       Phaser.Math.Distance.Between(col, row, marble.c, marble.r) < marble.rad;
 
-    // ── ground tiles (grass / sand / sea / flat marble) ──
+    // ── ground tiles — plateau tiles get NORMAL GRASS, same as lowland ──
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
         const sea = this.water[col];
@@ -109,22 +117,24 @@ export default class GameScene extends Phaser.Scene {
         } else if (inMarble(col, row)) {
           this.tileLayer.add(this.add.image(x, y, `marble${(col + row) % 2}`).setOrigin(0, 0));
         } else {
+          // plateau tiles get regular grass — no visual difference on top,
+          // elevation reads ONLY from the cliff face sprite below the edge
           this.tileLayer.add(this.add.image(x, y, `grass${(r() * 4) | 0}`).setOrigin(0, 0));
         }
       }
     }
 
-    plateaus.forEach((pl, i) => {
-      const key = `plateau${i}`;
-      const geo = makePlateau(this, key, pl.wT, pl.hT, pl.paths, SEED + i * 1777);
-      const img = this.add.image(pl.c * TILE, pl.r * TILE, key)
-        .setOrigin(0.5, geo.originY).setDepth(pl.r * TILE);
+    // ── cliff face sprites — only the rocky wall below the plateau edge ──
+    platDefs.forEach((def, i) => {
+      const key = `cliff${i}`;
+      const geo = makeCliffFaces(this, key, Math.floor(def.cx - def.rx - 1.5), def, platPaths[i], SEED + i * 1777);
+      const img = this.add.image(geo.worldX, 0, key).setOrigin(0, 0).setDepth(geo.depth);
       this.decoLayer.add(img);
     });
 
     const isLand = (col, row) =>
       col >= 0 && col < COLS && row >= 1 && row < this.water[col] - 2 &&
-      !onPlateau(col, row) && !inMarble(col, row);
+      !nearPlateau(col, row) && !inMarble(col, row);
 
     const addDeco = (key, col, row) => {
       const x = col * TILE + TILE / 2 + (r() - 0.5) * 18;
@@ -153,7 +163,7 @@ export default class GameScene extends Phaser.Scene {
     cluster(['olive', 'cypress', 'cypress', 'olive', 'shrub'], COLS * 0.72, ROWS * 0.66, 5, 42);
 
     // loose scree at the foot of each plateau
-    plateaus.forEach(pl => cluster(['rock', 'shrub'], pl.c, pl.r + pl.rad * 0.65, 3.5, 7));
+    platDefs.forEach(d => cluster(['rock', 'shrub'], d.cx, d.cy + d.ry + 1.5, 3, 7));
 
     // ── meadow flowers across the open plains ──
     const flowers = ['flower_poppy', 'flower_lav', 'flower_daisy'];

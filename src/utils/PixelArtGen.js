@@ -343,155 +343,114 @@ function makeRock(scene) {
   tex.refresh();
 }
 
-// ── PLATEAU — organic mesa with stacked limestone cliff face, Zeus-style ─────
-// Organic ellipse outline (irregular, not rectangular), flat grass top,
-// cliff face made of stacked rectangular STONE BLOCKS (like the AI image:
-// beige/sandy limestone, joints, crevices, lit top-left), broken by grass ramps.
-// pathFracs: 0..1 positions along the south arc where ramps cut through.
-export function makePlateau(scene, key, wTiles, hTiles, pathFracs, seed) {
-  const CLIFF  = 28;   // cliff face height px
-  const RIM    = 14;   // top rim boulder overhang
-  const PAD    = 22;   // transparent padding
-  const r = rng(seed);
-
-  const rx = (wTiles * TILE) / 2;
-  const ry = (hTiles * TILE) / 2;
-
-  const W = Math.round(rx * 2 + PAD * 2 + 8);
-  const H = Math.round(ry * 2 + PAD * 2 + CLIFF + 12);
-  const { tex, ctx } = canvas(scene, key, W, H);
-  const cx = W / 2;
-  const cy = PAD + ry;
-
-  // ── organic outline (sine-harmonic irregularity) ──
-  const ph = [r() * 6.28, r() * 6.28, r() * 6.28];
+// ── PLATEAU OUTLINE — shared between tile rendering and cliff sprite ──────────
+// Returns { inside(col,row), ph } so scene and generator agree on the shape.
+export function makePlateauDef(cx, cy, rx, ry, seed) {
+  const s = rng(seed);
+  const ph = [s() * 6.28, s() * 6.28, s() * 6.28];
   const wobble = (a) =>
     1 + 0.10 * Math.sin(2.0 * a + ph[0])
       + 0.06 * Math.sin(3.7 * a + ph[1])
       + 0.03 * Math.sin(6.1 * a + ph[2]);
-  const inside = (x, y) => {
-    const nx = (x - cx) / rx, ny = (y - cy) / ry;
+  const inside = (col, row) => {
+    const nx = (col - cx) / rx, ny = (row - cy) / ry;
+    return Math.hypot(nx, ny) <= wobble(Math.atan2(ny, nx));
+  };
+  return { cx, cy, rx, ry, ph, inside };
+}
+
+// ── CLIFF FACES — only the rocky wall below the south/east edges ─────────────
+// The plateau TOP is regular grass tiles; this sprite adds ONLY the cliff face
+// that hangs below the edge tiles, making the elevation readable without making
+// the plateau look like a floating island.
+export function makeCliffFaces(scene, key, sprLeft, def, pathFracs, seed) {
+  const { cx, cy, rx, ry, ph } = def;
+  const CLIFF = 28;
+
+  // sprite covers just the plateau bounding box + cliff height
+  const col0 = Math.floor(cx - rx - 1.5),  col1 = Math.ceil(cx + rx + 1.5);
+  const sprW  = (col1 - col0) * TILE;
+  const sprH  = Math.round((cy + ry + 2.5) * TILE) + CLIFF + 6;
+  const { tex, ctx } = canvas(scene, key, sprW, sprH);
+
+  const wobble = (a) =>
+    1 + 0.10 * Math.sin(2.0 * a + ph[0])
+      + 0.06 * Math.sin(3.7 * a + ph[1])
+      + 0.03 * Math.sin(6.1 * a + ph[2]);
+  // fractional (col, row) inside test used at pixel resolution
+  const insideF = (fc, fr) => {
+    const nx = (fc - cx) / rx, ny = (fr - cy) / ry;
     return Math.hypot(nx, ny) <= wobble(Math.atan2(ny, nx));
   };
 
-  // path test: is this x-column in a ramp mouth?
-  const PATH_PX = TILE * 2.2;
-  const pathXs  = pathFracs.map(f => cx + (f * 2 - 1) * rx);
-  const inPath  = (x) => pathXs.some(px0 => Math.abs(x - px0) < PATH_PX / 2);
+  // path mouth positions in absolute world-pixel-x
+  const pathWorldX = pathFracs.map(f => (cx + (f - 0.5) * 2 * rx) * TILE);
+  const PATH_PX = TILE * 2.0;
+  const isRamp = (worldX) => pathWorldX.some(px0 => Math.abs(worldX - px0) < PATH_PX / 2);
 
-  // find bottom of inside shape per column
-  const colBot = new Int32Array(W).fill(-1);
-  const colTop = new Int32Array(W).fill(-1);
-  for (let y = 0; y < H - CLIFF - 6; y++)
-    for (let x = 0; x < W; x++)
-      if (inside(x, y)) {
-        if (colTop[x] < 0) colTop[x] = y;
-        colBot[x] = y;
-      }
+  // limestone block palette
+  const SHI = '#ede6d2', SL = '#d4c89a', SM = '#b8a97a', SD = '#8f7e52', SX = '#5a4a2c';
+  const MOSS = '#7c9450';
+  const BH = [9, 10, 9];   // block-row heights (must sum = CLIFF)
 
-  // ── drop shadow ──
-  ctx.fillStyle = 'rgba(8,6,0,0.22)';
-  ctx.beginPath();
-  ctx.ellipse(cx + 8, cy + ry * wobble(Math.PI / 2) + CLIFF + 4, rx * 0.92, 10, 0, 0, Math.PI * 2);
-  ctx.fill();
+  for (let sx = 0; sx < sprW; sx++) {
+    const worldX = (col0 * TILE) + sx;           // absolute pixel x
+    const fc = worldX / TILE + 0.5;              // fractional col at pixel centre
 
-  // ── top surface: same grass as lowland, light/shade bands ──
-  for (let y = 0; y < H - CLIFF - 6; y++)
-    for (let x = 0; x < W; x++) {
-      if (!inside(x, y)) continue;
-      const t = (y - colTop[x]) / Math.max(1, colBot[x] - colTop[x]);
-      let c = ((x ^ y) & 1) ? C.g0 : C.g1;
-      if (t < 0.12) c = C.g0;              // back-lit edge
-      if (t > 0.90) c = C.g2;              // front shadow before cliff
-      px(ctx, x, y, 1, 1, c);
+    // find the southernmost tile row where the plateau ends (tile-snapped)
+    let edgeRow = -1;
+    for (let row = 0; row < Math.ceil(cy + ry + 1); row++) {
+      if (insideF(fc, row + 0.5) && !insideF(fc, row + 1.5)) edgeRow = row;
     }
+    if (edgeRow < 0) continue;
 
-  // ── cliff face: per-column, STACKED LIMESTONE BLOCK ROWS ──────────────────
-  // Stone block palette (matches AI image: warm sandy beige)
-  const SHI = '#ede6d2';   // top face, highlight
-  const SL  = '#d4c89a';   // lit face
-  const SM  = '#b8a97a';   // mid
-  const SD  = '#8f7e52';   // shadow
-  const SX  = '#5a4a2c';   // mortar joint / crevice (dark brown)
-  const MOSS_C = '#7c9450';
+    const cliffY = (edgeRow + 1) * TILE;        // sprite-y where cliff starts
 
-  // block-row heights for the cliff (randomised a little per seed)
-  const blockH = [9, 10, 9];                 // 3 stacked rows = 28px
-  let rowY = 0; const rowTops = [];
-  for (const bh of blockH) { rowTops.push(rowY); rowY += bh; }
-
-  for (let x = 0; x < W; x++) {
-    const b = colBot[x];
-    if (b < 0) continue;
-
-    if (inPath(x)) {
-      // ── GRASS RAMP ──
-      px(ctx, x, b, 1, 1, C.g2);           // dark lip at rim
-      for (let k = 1; k <= CLIFF; k++) {
+    if (isRamp(worldX)) {
+      // ── grass ramp ──
+      for (let k = 0; k < CLIFF; k++) {
         const t = k / CLIFF;
-        const c = t < 0.25 ? C.g1 : t < 0.65 ? C.g2 : C.g3;
-        px(ctx, x, b + k, 1, 1, ((x ^ k) & 1) && t < 0.45 ? C.g0 : c);
+        const c = t < 0.28 ? C.g1 : t < 0.62 ? C.g2 : C.g3;
+        px(ctx, sx, cliffY + k, 1, 1, ((sx ^ k) & 1) && t < 0.38 ? C.g0 : c);
       }
-      continue;
-    }
+    } else {
+      // ── stacked limestone block rows ──
+      px(ctx, sx, cliffY - 1, 1, 1, SX);        // dark capping lip at cliff top
 
-    // ── STACKED STONE BLOCKS ──
-    px(ctx, x, b, 1, 1, SX);               // dark capping lip
-
-    for (let ri = 0; ri < blockH.length; ri++) {
-      const rTop  = rowTops[ri];
-      const rH    = blockH[ri];
-      // unique block boundary: offset by x so joins don't line up vertically
-      const blockSeed = ((x / 14) | 0) * 7 + ri * 31 + (seed & 0xff);
-      const br2 = rng(blockSeed + 3);
-
-      for (let k = 0; k < rH; k++) {
-        const yy = b + 1 + rTop + k;
-        const t  = k / (rH - 1);           // 0 = top of this block row, 1 = bottom
-
-        // mortar joints: top and bottom pixel of each block row
-        if (k === 0 || k === rH - 1) { px(ctx, x, yy, 1, 1, SX); continue; }
-
-        // vertical mortar at staggered block joints (every ~14px, offset per row)
-        const jointOffset = (ri & 1) ? 7 : 0;
-        if (((x + jointOffset) % 14) === 0) { px(ctx, x, yy, 1, 1, SX); continue; }
-
-        // face shading: lit top-left, shadow bottom-right
-        const gU = Math.max(0, ((x + jointOffset) % 14) / 14);   // 0=left, 1=right
-        const lum = (1 - t) * 0.55 + (1 - gU) * 0.45;
-        let c = lum > 0.68 ? SHI : lum > 0.50 ? SL : lum > 0.30 ? SM : SD;
-
-        // subtle texture noise
-        if (((x * 3 + k * 7 + ri * 17) % 11) === 0) c = (c === SL ? SHI : c === SM ? SL : c);
-
-        // crack / streak
-        if (((x + ri * 5) % 19) === 9 && k > 1 && k < rH - 2) c = SD;
-
-        px(ctx, x, yy, 1, 1, c);
+      let rowY = 0;
+      for (let ri = 0; ri < BH.length; ri++) {
+        const bh = BH[ri];
+        for (let k = 0; k < bh; k++) {
+          const t = k / (bh - 1);
+          const yy = cliffY + rowY + k;
+          // horizontal mortar at block boundaries
+          if (k === 0 || k === bh - 1) { px(ctx, sx, yy, 1, 1, SX); continue; }
+          // vertical mortar (staggered per row so joints don't align)
+          const jOff = (ri & 1) ? 7 : 0;
+          if (((worldX + jOff) % 14) === 0) { px(ctx, sx, yy, 1, 1, SX); continue; }
+          // face shading: lit top-left
+          const gU = ((worldX + jOff) % 14) / 14;
+          const lum = (1 - t) * 0.55 + (1 - gU) * 0.45;
+          let c = lum > 0.68 ? SHI : lum > 0.50 ? SL : lum > 0.30 ? SM : SD;
+          if (((worldX * 3 + k * 7 + ri * 17) % 11) === 0) c = c === SL ? SHI : c === SM ? SL : c;
+          if (((worldX + ri * 5) % 19) === 9 && k > 1 && k < bh - 2) c = SD;  // crack
+          px(ctx, sx, yy, 1, 1, c);
+        }
+        if (((worldX * 7 + ri * 13 + seed) % 9) === 0) px(ctx, sx, cliffY + rowY + 1, 1, 1, MOSS);
+        rowY += bh;
       }
-      // moss fleck in joint, random per block
-      if (br2() < 0.20) px(ctx, x, b + 1 + rTop + 1, 1, 1, MOSS_C);
+      // cast shadow at cliff base
+      for (let s = 0; s < 5; s++) {
+        ctx.fillStyle = `rgba(8,6,0,${0.18 - s * 0.032})`;
+        ctx.fillRect(sx + 2, cliffY + rowY + s, 1, 1);
+      }
     }
-  }
-
-  // ── top rim: small irregular stone caps along the cliff top edge ────────────
-  // These give the "crenellated rubble" look along the plateau brim.
-  for (let x = 0; x < W; x++) {
-    const b = colBot[x];
-    if (b < 0 || inPath(x)) continue;
-    // small raised stone cap, 2-4px tall, colour the top-face of the first block
-    const capH = 2 + ((seed * x + 17) % 3) | 0;
-    for (let k = 0; k < capH; k++) {
-      const t = k / capH;
-      px(ctx, x, b - k - 1, 1, 1, k === 0 ? SX : t < 0.5 ? SHI : SL);
-    }
-    // tiny moss on cap top
-    if (((x * 7 + seed) % 9) === 0) px(ctx, x, b - capH - 1, 1, 1, MOSS_C);
   }
 
   tex.refresh();
-  const lowestBot = Math.max(...Array.from(colBot));
-  return { W, H, originY: (lowestBot + CLIFF) / H };
+  // depth: just below the southernmost edge row so it sorts in front of highland trees
+  const depth = Math.round((cy + ry + 1) * TILE) + CLIFF;
+  return { key, worldX: col0 * TILE, depth };
 }
 
 // ── FLOWER ──────────────────────────────────────────────────────────────────
