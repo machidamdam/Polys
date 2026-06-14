@@ -343,98 +343,67 @@ function makeRock(scene) {
   tex.refresh();
 }
 
-// ── PLATEAU — raised flat MESA with an organic outline, Zeus-style ──────────
-// Irregular blob top + rocky rim + a cliff skirt on the south face, broken by
-// 1-3 grass ramps (pathFracs = 0..1 positions across the width) you can walk up.
-export function makePlateau(scene, key, wTiles, hTiles, pathFracs, seed) {
-  const CLIFF = 20;          // cliff-face height (px)
-  const PAD   = 20;          // room for rim boulders + shadow
+// ── HIGHLAND CLIFF EDGE — a big elevated region, Zeus-style ─────────────────
+// Draws ONE full-map-width sprite: the rocky cliff that separates the elevated
+// highland (to the north / above) from the lowland (below). The highland top is
+// just normal grass tiles laid by the scene; this sprite is only the cliff face
+// + rocky rim, broken by walkable grass ramps where `rampCols` has true.
+// `edgeRows[col]` = the boundary row (the cliff top) for that column.
+// Returns { W, H, top, baseDepth } so the scene can place & depth-sort it.
+export function makeHighlandCliff(scene, key, edgeRows, rampCols, seed) {
+  const COLS = edgeRows.length;
+  const CLIFF = 26;                 // cliff face height (px)
+  const RIM   = 16;                 // boulder rim sits above the edge
+  const W = COLS * TILE;
+  let minR = Infinity, maxR = -Infinity;
+  for (let c = 0; c < COLS; c++) { minR = Math.min(minR, edgeRows[c]); maxR = Math.max(maxR, edgeRows[c]); }
+  const top = minR * TILE - RIM - 4;
+  const H = Math.round(maxR * TILE + CLIFF + 12 - top);
+  const { tex, ctx } = canvas(scene, key, W, H);
   const r = rng(seed);
 
-  const rx = (wTiles * TILE) / 2;
-  const ry = (hTiles * TILE) / 2;
-  const MAXS = 1.30;         // max outline bulge factor
-
-  const W = Math.round(2 * rx * MAXS + PAD * 2);
-  const H = Math.round(2 * ry * MAXS + CLIFF + PAD * 2);
-  const { tex, ctx } = canvas(scene, key, W, H);
-  const cx = W / 2;
-  const cy = PAD + ry * MAXS;
-
-  // organic outline: a few sine harmonics with random phase
-  const ph = [r() * 6.28, r() * 6.28, r() * 6.28, r() * 6.28];
-  const scaleAt = (a) =>
-    1 + 0.13 * Math.sin(3 * a + ph[0]) + 0.08 * Math.sin(5 * a + ph[1])
-      + 0.05 * Math.sin(7 * a + ph[2]) + 0.04 * Math.sin(2 * a + ph[3]);
-  const inside = (x, y) => {
-    const nx = (x - cx) / rx, ny = (y - cy) / ry;
-    return Math.hypot(nx, ny) <= scaleAt(Math.atan2(ny, nx));
+  // smooth edge in pixel-space, interpolated between column boundary rows
+  const edgePx = (x) => {
+    const fc = x / TILE - 0.5;
+    const c0 = Phaser.Math.Clamp(Math.floor(fc), 0, COLS - 1);
+    const c1 = Phaser.Math.Clamp(c0 + 1, 0, COLS - 1);
+    const t = Phaser.Math.Clamp(fc - c0, 0, 1);
+    return (edgeRows[c0] * (1 - t) + edgeRows[c1] * t) * TILE - top;
   };
+  const colRamp = (x) => rampCols[Phaser.Math.Clamp(Math.floor(x / TILE), 0, COLS - 1)];
 
-  // path test in pixel-x across the footprint
-  const PATH_W = TILE * 1.8;
-  const pathPx = pathFracs.map(f => cx + (f * 2 - 1) * rx);
-  const inPath = (x) => pathPx.some(pxn => Math.abs(x - pxn) < PATH_W / 2);
-
-  // drop shadow under the whole mesa
-  ctx.fillStyle = 'rgba(12,8,0,0.25)';
-  ctx.beginPath();
-  ctx.ellipse(cx + 6, cy + ry * 0.96 + CLIFF, rx * 1.05, ry * 0.28, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // ── top surface fill + per-column south edge ──────────────────────────────
-  // grass uses the SAME palette as the lowland so the seam is subtle.
-  const colBottom = new Int16Array(W).fill(-1);
-  let lowest = 0;
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      if (!inside(x, y)) continue;
-      px(ctx, x, y, 1, 1, ((x ^ y) & 1) ? C.g0 : C.g1);
-      colBottom[x] = y;
-      if (y > lowest) lowest = y;
-    }
-  }
-  // gentle form shading on the top: lighter toward back, darker toward front
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      if (colBottom[x] < 0 || !inside(x, y)) continue;
-      const top = firstInsideY(inside, x, H);
-      const t = (y - top) / Math.max(1, colBottom[x] - top);
-      if (t < 0.16 && ((x + y) & 1)) px(ctx, x, y, 1, 1, C.g0);          // back light
-      else if (t > 0.86 && ((x + y) & 1)) px(ctx, x, y, 1, 1, C.g2);     // front shade
-    }
-  }
-  // scattered grass tufts on top
-  for (let i = 0; i < wTiles * hTiles; i++) {
-    const gx = (r() * W) | 0;
-    if (colBottom[gx] < 0) continue;
-    const gy = (firstInsideY(inside, gx, H) + 6 + r() * (colBottom[gx] - firstInsideY(inside, gx, H) - 10)) | 0;
-    if (gy > 0 && inside(gx, gy)) { px(ctx, gx, gy, 1, 3, C.g3); px(ctx, gx + 1, gy + 1, 1, 2, C.g0); }
-  }
-
-  // ── cliff skirt: extrude each south-edge column downward ───────────────────
+  // ── soft shadow the cliff casts onto the lowland ──
   for (let x = 0; x < W; x++) {
-    const b = colBottom[x];
-    if (b < 0) continue;
-    if (inPath(x)) {
-      // grass ramp sloping down to ground (walkable access)
-      for (let y = 1; y <= CLIFF; y++) {
+    if (colRamp(x)) continue;
+    const b = edgePx(x) + CLIFF;
+    for (let y = 0; y < 7; y++) { ctx.fillStyle = `rgba(12,8,0,${0.18 - y * 0.025})`; ctx.fillRect(x + 3, b + y, 1, 1); }
+  }
+
+  // ── cliff face per column ──
+  for (let x = 0; x < W; x++) {
+    const e = edgePx(x);
+    if (colRamp(x)) {
+      // walkable grass ramp down to the lowland
+      for (let y = 0; y <= CLIFF; y++) {
         const t = y / CLIFF;
-        px(ctx, x, b + y, 1, 1, t < 0.5 ? C.g1 : C.g2);
+        const c = t < 0.30 ? C.g1 : t < 0.70 ? C.g2 : C.g3;
+        px(ctx, x, e + y, 1, 1, ((x ^ y) & 1) && t < 0.5 ? C.g0 : c);
       }
+      // a couple of edge stones flanking the ramp mouth
       continue;
     }
-    // dark lip then layered rock face
-    px(ctx, x, b, 1, 1, C.mOut);
-    for (let y = 1; y <= CLIFF; y++) {
+    px(ctx, x, e - 1, 1, 2, C.mOut);                       // dark lip
+    for (let y = 0; y <= CLIFF; y++) {
       const t = y / CLIFF;
-      let c = t < 0.22 ? C.m0 : t < 0.55 ? C.m1 : t < 0.82 ? C.m2 : C.mOut;
+      let c = t < 0.20 ? C.m0 : t < 0.50 ? C.m1 : t < 0.80 ? C.m2 : C.mOut;
       if (((x * 5 + y * 3) % 9) === 0) c = (c === C.m2 ? C.m1 : c === C.m1 ? C.m0 : c);
-      px(ctx, x, b + y, 1, 1, c);
+      // vertical crevices every so often
+      if ((x % 19) === 0 && y > 3 && y < CLIFF - 2) c = C.mOut;
+      px(ctx, x, e + y, 1, 1, c);
     }
   }
 
-  // ── rock rim boulders following the organic outline ───────────────────────
+  // ── rocky rim of boulders along the highland edge (the "wall") ──
   const BW = 15, BH = 9;
   const paintBoulder = (bx, by, bseed) => {
     const br = rng(bseed);
@@ -451,25 +420,14 @@ export function makePlateau(scene, key, wTiles, hTiles, pathFracs, seed) {
       px(ctx, bx + hw - 1, by + dy, 1,           1, C.m2);
     }
   };
-  const NB = Math.round((wTiles + hTiles) * 1.6);
-  for (let i = 0; i < NB; i++) {
-    const a = (i / NB) * Math.PI * 2;
-    const s = scaleAt(a);
-    const bx = Math.round(cx + Math.cos(a) * rx * s * 0.98);
-    const by = Math.round(cy + Math.sin(a) * ry * s * 0.98);
-    // skip rim where a south path comes through
-    if (Math.sin(a) > 0.25 && inPath(bx)) continue;
-    paintBoulder(bx, by, seed + i * 131 + 7);
+  for (let x = BW; x < W - BW; x += BW + 6) {
+    const xx = x + ((r() - 0.5) * 8) | 0;
+    if (colRamp(xx) || colRamp(xx - BW) || colRamp(xx + BW)) continue;   // leave ramp mouths clear
+    paintBoulder(xx, edgePx(xx) - 1, seed + x * 131 + 7);
   }
 
   tex.refresh();
-  return { W, H, originY: (lowest + CLIFF) / H };
-}
-
-// y of the first inside pixel scanning down a column (cached-free, small H)
-function firstInsideY(inside, x, H) {
-  for (let y = 0; y < H; y++) if (inside(x, y)) return y;
-  return 0;
+  return { W, H, top, baseDepth: maxR * TILE + CLIFF };
 }
 
 // ── FLOWER ──────────────────────────────────────────────────────────────────
