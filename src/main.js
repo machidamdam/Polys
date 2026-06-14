@@ -1,26 +1,16 @@
-import MenuScene from './scenes/MenuScene.js?v=24';
-import GameScene from './scenes/GameScene.js?v=24';
+import MenuScene from './scenes/MenuScene.js?v=25';
+import IsoScene  from './scenes/IsoScene.js?v=25';
 
-const config = {
+const game = new Phaser.Game({
   type: Phaser.AUTO,
   width: window.innerWidth,
   height: window.innerHeight,
-  backgroundColor: '#a8af60',   // matches grass so tile gaps are invisible
-  pixelArt: true,
-  antialias: false,
-  roundPixels: true,
-  scene: [MenuScene, GameScene],
-  scale: {
-    mode: Phaser.Scale.RESIZE,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-  },
-  input: {
-    touch: true,
-  },
-};
+  backgroundColor: '#1a4a6e',   // sea blue — shows under transparent tile areas
+  pixelArt: false,              // isometric sprites use anti-aliasing
+  scene: [MenuScene, IsoScene],
+  scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH },
+  input: { touch: true },
+});
 
-const game = new Phaser.Game(config);
-
-// Prevent default touch behaviours (scroll, zoom)
 document.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
 document.addEventListener('touchmove',  e => e.preventDefault(), { passive: false });

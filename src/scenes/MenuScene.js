@@ -40,7 +40,7 @@ export default class MenuScene extends Phaser.Scene {
 
     btn.on('pointerdown', () => {
       this.cameras.main.fadeOut(300, 0, 0, 0);
-      this.time.delayedCall(300, () => this.scene.start('GameScene'));
+      this.time.delayedCall(300, () => this.scene.start('IsoScene'));
     });
 
     this.cameras.main.fadeIn(400);
