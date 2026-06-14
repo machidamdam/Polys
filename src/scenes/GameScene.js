@@ -1,4 +1,4 @@
-import { TILE, generateTextures, makePlateauDef, makeCliffFaces } from '../utils/PixelArtGen.js?v=23';
+import { TILE, generateTextures, makePlateauDef, makeCliffFaces } from '../utils/PixelArtGen.js?v=24';
 
 const COLS = 36;
 const ROWS = 52;
@@ -9,6 +9,23 @@ const MAP_H = ROWS * TILE;
 
 export default class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
+
+  preload() {
+    // real rock + grass-lip textures sampled from the user's pixel-art block
+    this.load.image('cliff_rock', 'assets/cliff_rock.png?v=24');
+    this.load.image('cliff_lip',  'assets/cliff_lip.png?v=24');
+  }
+
+  // read a loaded image's raw pixels for sampling in the cliff generator
+  texData(key) {
+    const src = this.textures.get(key).getSourceImage();
+    const cv = document.createElement('canvas');
+    cv.width = src.width; cv.height = src.height;
+    const cx = cv.getContext('2d');
+    cx.drawImage(src, 0, 0);
+    const d = cx.getImageData(0, 0, src.width, src.height);
+    return { data: d.data, w: src.width, h: src.height };
+  }
 
   create() {
     generateTextures(this);
@@ -75,13 +92,12 @@ export default class GameScene extends Phaser.Scene {
     this.water = [];
     for (let c = 0; c < COLS; c++) this.water[c] = this.waterLevel(c);
 
-    // ── PLATEAUX — define organic outlines (shared by tiles + cliff sprites) ──
+    // ── PLATEAU — one well-made organic mesa (shared outline tiles + cliff) ──
     // cx/cy in tile coords, rx/ry = semi-axes in tiles
     const platDefs = [
-      makePlateauDef(COLS * 0.28, ROWS * 0.26, 7.5, 5.0, SEED + 111),
-      makePlateauDef(COLS * 0.74, ROWS * 0.40, 5.5, 3.8, SEED + 222),
+      makePlateauDef(COLS * 0.38, ROWS * 0.30, 8.5, 5.5, SEED + 111),
     ];
-    const platPaths = [[0.22, 0.70], [0.50]];
+    const platPaths = [[0.30, 0.68]];
 
     // tile-level check: is (col,row) inside any plateau?
     const onPlateau = (col, row) => platDefs.some(d => d.inside(col, row));
@@ -124,10 +140,12 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // ── cliff face sprites — only the rocky wall below the plateau edge ──
+    // ── cliff face sprites — real rock texture below each plateau edge ──
+    const rockTex = this.texData('cliff_rock');
+    const lipTex  = this.texData('cliff_lip');
     platDefs.forEach((def, i) => {
       const key = `cliff${i}`;
-      const geo = makeCliffFaces(this, key, Math.floor(def.cx - def.rx - 1.5), def, platPaths[i], SEED + i * 1777);
+      const geo = makeCliffFaces(this, key, def, platPaths[i], SEED + i * 1777, rockTex, lipTex);
       const img = this.add.image(geo.worldX, 0, key).setOrigin(0, 0).setDepth(geo.depth);
       this.decoLayer.add(img);
     });
