@@ -343,134 +343,155 @@ function makeRock(scene) {
   tex.refresh();
 }
 
-// ── HIGHLAND MASK — defines the elevated region (a corner of the island) ────
-// Shared by the scene (deco exclusion) and the cliff generator so they agree.
-export function highlandMask(region) {
-  const { cx, cy, Rx, Ry, ph } = region;
-  const scaleAt = (a) =>
-    1 + 0.10 * Math.sin(2 * a + ph[0]) + 0.06 * Math.sin(3 * a + ph[1])
-      + 0.04 * Math.sin(5 * a + ph[2]);
-  const isHi = (col, row) => {
-    const nx = (col - cx) / Rx, ny = (row - cy) / Ry;
-    return Math.hypot(nx, ny) <= scaleAt(Math.atan2(ny, nx));
-  };
-  return { isHi, scaleAt };
-}
+// ── PLATEAU — organic mesa with stacked limestone cliff face, Zeus-style ─────
+// Organic ellipse outline (irregular, not rectangular), flat grass top,
+// cliff face made of stacked rectangular STONE BLOCKS (like the AI image:
+// beige/sandy limestone, joints, crevices, lit top-left), broken by grass ramps.
+// pathFracs: 0..1 positions along the south arc where ramps cut through.
+export function makePlateau(scene, key, wTiles, hTiles, pathFracs, seed) {
+  const CLIFF  = 28;   // cliff face height px
+  const RIM    = 14;   // top rim boulder overhang
+  const PAD    = 22;   // transparent padding
+  const r = rng(seed);
 
-// nicer stacked boulder: lit top-left, shadowed core, crack, moss fleck
-function stone(ctx, bx, by, size, seed) {
-  const br = rng(seed);
-  const bw = Math.max(4, (size * (0.85 + br() * 0.35)) | 0);
-  const bh = Math.max(3, (size * (0.62 + br() * 0.28)) | 0);
-  const HI = '#efe9d8', L = C.m0, M = C.m1, D = C.m2, X = C.mOut, MOSS = '#7c9450';
-  for (let dy = -bh; dy <= bh; dy++) {
-    const hw = Math.floor(Math.sqrt(Math.max(0, bw * bw - (dy * bw / bh) ** 2)));
-    if (hw < 1) continue;
-    const t = (dy + bh) / (bh * 2);                       // 0 top → 1 bottom
-    for (let dx = -hw; dx <= hw; dx++) {
-      const u = (dx + hw) / (2 * hw);                     // 0 left → 1 right
-      let c;
-      if (dy === -bh || dy === bh || dx === -hw || dx === hw) c = X;   // outline
-      else {
-        const lum = (1 - t) * 0.6 + (1 - u) * 0.4;        // light top-left
-        c = lum > 0.66 ? HI : lum > 0.46 ? L : lum > 0.28 ? M : D;
-      }
-      px(ctx, bx + dx, by + dy, 1, 1, c);
-    }
-  }
-  // diagonal crack
-  for (let i = -bh + 2; i < bh - 1; i++) {
-    if (((i + bh) & 1) === 0) px(ctx, bx + (i * 0.5) | 0, by + i, 1, 1, X);
-  }
-  // moss fleck on the sunny shoulder
-  if (br() < 0.6) px(ctx, bx - (bw * 0.3) | 0, by - (bh * 0.4) | 0, 2, 1, MOSS);
-}
+  const rx = (wTiles * TILE) / 2;
+  const ry = (hTiles * TILE) / 2;
 
-// ── HIGHLAND CLIFF — one sprite: the rocky cliff wrapping the raised corner ──
-// The highland TOP is plain grass laid by the scene; this sprite is only the
-// cliff face + boulder rim that wrap the south & east sides of the region,
-// broken by walkable grass ramps. `region` is the highlandMask config,
-// `ramps` = array of boundary angles (radians) where a ramp cuts through.
-export function makeHighlandCliff(scene, key, cols, rows, region, ramps, seed) {
-  const CLIFF = 30;
-  const W = cols * TILE, H = rows * TILE;
+  const W = Math.round(rx * 2 + PAD * 2 + 8);
+  const H = Math.round(ry * 2 + PAD * 2 + CLIFF + 12);
   const { tex, ctx } = canvas(scene, key, W, H);
-  const { isHi, scaleAt } = highlandMask(region);
-  const { cx, cy, Rx, Ry } = region;
+  const cx = W / 2;
+  const cy = PAD + ry;
 
-  // pixel-resolution highland mask
-  const hi = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++)
-      if (isHi(x / TILE, y / TILE)) hi[y * W + x] = 1;
-  const HI = (x, y) => x >= 0 && y >= 0 && x < W && y < H && hi[y * W + x] === 1;
-
-  const angOf = (x, y) => Math.atan2((y / TILE - cy) / Ry, (x / TILE - cx) / Rx);
-  const RW = 0.16;   // ramp angular half-width
-  const isRamp = (x, y) => {
-    const a = angOf(x, y);
-    return ramps.some(ra => Math.abs(Math.atan2(Math.sin(a - ra), Math.cos(a - ra))) < RW);
+  // ── organic outline (sine-harmonic irregularity) ──
+  const ph = [r() * 6.28, r() * 6.28, r() * 6.28];
+  const wobble = (a) =>
+    1 + 0.10 * Math.sin(2.0 * a + ph[0])
+      + 0.06 * Math.sin(3.7 * a + ph[1])
+      + 0.03 * Math.sin(6.1 * a + ph[2]);
+  const inside = (x, y) => {
+    const nx = (x - cx) / rx, ny = (y - cy) / ry;
+    return Math.hypot(nx, ny) <= wobble(Math.atan2(ny, nx));
   };
 
-  // ── cliff faces: extrude every boundary pixel outward (down &/or right) ──
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      if (!hi[y * W + x]) continue;
-      const downLow  = !HI(x, y + 1);
-      const rightLow = !HI(x + 1, y);
-      if (!downLow && !rightLow) continue;
-      const ramp = isRamp(x, y);
+  // path test: is this x-column in a ramp mouth?
+  const PATH_PX = TILE * 2.2;
+  const pathXs  = pathFracs.map(f => cx + (f * 2 - 1) * rx);
+  const inPath  = (x) => pathXs.some(px0 => Math.abs(x - px0) < PATH_PX / 2);
 
-      if (downLow) {                                   // south-facing face
-        for (let k = 1; k <= CLIFF; k++) {
-          const yy = y + k; if (HI(x, yy)) break;
-          const t = k / CLIFF;
-          ctx.fillStyle = paintFace(t, x, k, ramp);
-          ctx.fillRect(x, yy, 1, 1);
-        }
-        if (!ramp) px(ctx, x, y, 1, 1, C.mOut);        // dark lip on top
-        // soft cast shadow on the flat below
-        if (!ramp) { ctx.fillStyle = 'rgba(12,8,0,0.16)'; ctx.fillRect(x + 2, y + CLIFF + 1, 1, 3); }
+  // find bottom of inside shape per column
+  const colBot = new Int32Array(W).fill(-1);
+  const colTop = new Int32Array(W).fill(-1);
+  for (let y = 0; y < H - CLIFF - 6; y++)
+    for (let x = 0; x < W; x++)
+      if (inside(x, y)) {
+        if (colTop[x] < 0) colTop[x] = y;
+        colBot[x] = y;
       }
-      if (rightLow) {                                  // east-facing face
-        for (let k = 1; k <= CLIFF; k++) {
-          const xx = x + k; if (HI(xx, y)) break;
-          const t = k / CLIFF;
-          ctx.fillStyle = paintFace(t, y, k, ramp);
-          ctx.fillRect(xx, y, 1, 1);
-        }
-        if (!ramp) px(ctx, x, y, 1, 1, C.mOut);
+
+  // ── drop shadow ──
+  ctx.fillStyle = 'rgba(8,6,0,0.22)';
+  ctx.beginPath();
+  ctx.ellipse(cx + 8, cy + ry * wobble(Math.PI / 2) + CLIFF + 4, rx * 0.92, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ── top surface: same grass as lowland, light/shade bands ──
+  for (let y = 0; y < H - CLIFF - 6; y++)
+    for (let x = 0; x < W; x++) {
+      if (!inside(x, y)) continue;
+      const t = (y - colTop[x]) / Math.max(1, colBot[x] - colTop[x]);
+      let c = ((x ^ y) & 1) ? C.g0 : C.g1;
+      if (t < 0.12) c = C.g0;              // back-lit edge
+      if (t > 0.90) c = C.g2;              // front shadow before cliff
+      px(ctx, x, y, 1, 1, c);
+    }
+
+  // ── cliff face: per-column, STACKED LIMESTONE BLOCK ROWS ──────────────────
+  // Stone block palette (matches AI image: warm sandy beige)
+  const SHI = '#ede6d2';   // top face, highlight
+  const SL  = '#d4c89a';   // lit face
+  const SM  = '#b8a97a';   // mid
+  const SD  = '#8f7e52';   // shadow
+  const SX  = '#5a4a2c';   // mortar joint / crevice (dark brown)
+  const MOSS_C = '#7c9450';
+
+  // block-row heights for the cliff (randomised a little per seed)
+  const blockH = [9, 10, 9];                 // 3 stacked rows = 28px
+  let rowY = 0; const rowTops = [];
+  for (const bh of blockH) { rowTops.push(rowY); rowY += bh; }
+
+  for (let x = 0; x < W; x++) {
+    const b = colBot[x];
+    if (b < 0) continue;
+
+    if (inPath(x)) {
+      // ── GRASS RAMP ──
+      px(ctx, x, b, 1, 1, C.g2);           // dark lip at rim
+      for (let k = 1; k <= CLIFF; k++) {
+        const t = k / CLIFF;
+        const c = t < 0.25 ? C.g1 : t < 0.65 ? C.g2 : C.g3;
+        px(ctx, x, b + k, 1, 1, ((x ^ k) & 1) && t < 0.45 ? C.g0 : c);
       }
+      continue;
+    }
+
+    // ── STACKED STONE BLOCKS ──
+    px(ctx, x, b, 1, 1, SX);               // dark capping lip
+
+    for (let ri = 0; ri < blockH.length; ri++) {
+      const rTop  = rowTops[ri];
+      const rH    = blockH[ri];
+      // unique block boundary: offset by x so joins don't line up vertically
+      const blockSeed = ((x / 14) | 0) * 7 + ri * 31 + (seed & 0xff);
+      const br2 = rng(blockSeed + 3);
+
+      for (let k = 0; k < rH; k++) {
+        const yy = b + 1 + rTop + k;
+        const t  = k / (rH - 1);           // 0 = top of this block row, 1 = bottom
+
+        // mortar joints: top and bottom pixel of each block row
+        if (k === 0 || k === rH - 1) { px(ctx, x, yy, 1, 1, SX); continue; }
+
+        // vertical mortar at staggered block joints (every ~14px, offset per row)
+        const jointOffset = (ri & 1) ? 7 : 0;
+        if (((x + jointOffset) % 14) === 0) { px(ctx, x, yy, 1, 1, SX); continue; }
+
+        // face shading: lit top-left, shadow bottom-right
+        const gU = Math.max(0, ((x + jointOffset) % 14) / 14);   // 0=left, 1=right
+        const lum = (1 - t) * 0.55 + (1 - gU) * 0.45;
+        let c = lum > 0.68 ? SHI : lum > 0.50 ? SL : lum > 0.30 ? SM : SD;
+
+        // subtle texture noise
+        if (((x * 3 + k * 7 + ri * 17) % 11) === 0) c = (c === SL ? SHI : c === SM ? SL : c);
+
+        // crack / streak
+        if (((x + ri * 5) % 19) === 9 && k > 1 && k < rH - 2) c = SD;
+
+        px(ctx, x, yy, 1, 1, c);
+      }
+      // moss fleck in joint, random per block
+      if (br2() < 0.20) px(ctx, x, b + 1 + rTop + 1, 1, 1, MOSS_C);
     }
   }
 
-  // ── boulder rim along the boundary (skipping ramp mouths) ──
-  // walk the boundary by angle and drop overlapping stones of varied size
-  const STEP = 0.05;
-  let bi = 0;
-  for (let a = -0.2; a < Math.PI / 2 + 0.2; a += STEP) {
-    const s = scaleAt(a);
-    const colT = cx + Math.cos(a) * Rx * s;
-    const rowT = cy + Math.sin(a) * Ry * s;
-    const bx = Math.round(colT * TILE), by = Math.round(rowT * TILE);
-    if (bx < 4 || by < 4 || bx > W - 4 || by > H - 4) continue;
-    if (ramps.some(ra => Math.abs(Math.atan2(Math.sin(a - ra), Math.cos(a - ra))) < RW + 0.04)) continue;
-    stone(ctx, bx, by, 11, seed + bi * 137 + 1);
-    if ((bi & 1) === 0) stone(ctx, bx + 7, by + 4, 7, seed + bi * 91 + 53);   // small companion
-    bi++;
+  // ── top rim: small irregular stone caps along the cliff top edge ────────────
+  // These give the "crenellated rubble" look along the plateau brim.
+  for (let x = 0; x < W; x++) {
+    const b = colBot[x];
+    if (b < 0 || inPath(x)) continue;
+    // small raised stone cap, 2-4px tall, colour the top-face of the first block
+    const capH = 2 + ((seed * x + 17) % 3) | 0;
+    for (let k = 0; k < capH; k++) {
+      const t = k / capH;
+      px(ctx, x, b - k - 1, 1, 1, k === 0 ? SX : t < 0.5 ? SHI : SL);
+    }
+    // tiny moss on cap top
+    if (((x * 7 + seed) % 9) === 0) px(ctx, x, b - capH - 1, 1, 1, MOSS_C);
   }
 
   tex.refresh();
-  return { W, H };
-
-  // layered rock vs. grass ramp colour for the face
-  function paintFace(t, seedAxis, k, ramp) {
-    if (ramp) return t < 0.32 ? C.g1 : t < 0.68 ? C.g2 : C.g3;
-    let c = t < 0.18 ? C.m0 : t < 0.46 ? C.m1 : t < 0.78 ? C.m2 : C.mOut;
-    if (((seedAxis * 5 + k * 3) % 9) === 0) c = (c === C.m2 ? C.m1 : c === C.m1 ? C.m0 : c);
-    if ((seedAxis % 23) === 0 && k > 3 && k < CLIFF - 2) c = C.mOut;   // crevice
-    return c;
-  }
+  const lowestBot = Math.max(...Array.from(colBot));
+  return { W, H, originY: (lowestBot + CLIFF) / H };
 }
 
 // ── FLOWER ──────────────────────────────────────────────────────────────────

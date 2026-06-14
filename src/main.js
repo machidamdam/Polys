@@ -1,5 +1,5 @@
-import MenuScene from './scenes/MenuScene.js?v=21';
-import GameScene from './scenes/GameScene.js?v=21';
+import MenuScene from './scenes/MenuScene.js?v=22';
+import GameScene from './scenes/GameScene.js?v=22';
 
 const config = {
   type: Phaser.AUTO,

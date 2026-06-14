@@ -1,4 +1,4 @@
-import { TILE, generateTextures } from '../utils/PixelArtGen.js?v=21';
+import { TILE, generateTextures, makePlateau } from '../utils/PixelArtGen.js?v=22';
 
 const COLS = 36;
 const ROWS = 52;
@@ -9,13 +9,6 @@ const MAP_H = ROWS * TILE;
 
 export default class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
-
-  preload() {
-    // hand-made pixel-art relief blocks (grass top + rocky cliff + ramp)
-    this.load.image('relief_plateau', 'assets/relief_plateau.png?v=21');
-    this.load.image('relief_block',   'assets/relief_block.png?v=21');
-    this.load.image('relief_ramp',    'assets/relief_ramp.png?v=21');
-  }
 
   create() {
     generateTextures(this);
@@ -82,11 +75,13 @@ export default class GameScene extends Phaser.Scene {
     this.water = [];
     for (let c = 0; c < COLS; c++) this.water[c] = this.waterLevel(c);
 
-    // ── RELIEF — real pixel-art plateau blocks placed as a raised massif ──
-    // (grass top, rocky cliff face, reached by a ramp) in the NW grassland
-    const relief = { c: COLS * 0.30, r: ROWS * 0.30 };
-    const onRelief = (col, row) =>
-      ((col - relief.c) / 6.5) ** 2 + ((row - relief.r) / 4.5) ** 2 < 1;
+    // ── PLATEAUX — organic raised mesas with stacked limestone cliff faces ──
+    const plateaus = [
+      { c: COLS * 0.30, r: ROWS * 0.28, wT: 10, hT: 7, paths: [0.25, 0.70], rad: 7 },
+      { c: COLS * 0.74, r: ROWS * 0.42, wT:  7, hT: 5, paths: [0.55],       rad: 5 },
+    ];
+    const onPlateau = (col, row) =>
+      plateaus.some(pl => ((col - pl.c) / (pl.rad * 1.1)) ** 2 + ((row - pl.r) / (pl.rad * 0.85)) ** 2 < 1);
 
     // marble deposit: a flat whitish-grey rock patch in the grassland (Zeus)
     const marble = { c: COLS * 0.30, r: ROWS * 0.64, rad: 3.4 };
@@ -119,19 +114,17 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // place a relief block; depth from its ground-contact row so it sorts with trees
-    const placeRelief = (key, col, row, scale) => {
-      const img = this.add.image(col * TILE, row * TILE, key)
-        .setOrigin(0.5, 0.9).setScale(scale).setDepth(row * TILE);
+    plateaus.forEach((pl, i) => {
+      const key = `plateau${i}`;
+      const geo = makePlateau(this, key, pl.wT, pl.hT, pl.paths, SEED + i * 1777);
+      const img = this.add.image(pl.c * TILE, pl.r * TILE, key)
+        .setOrigin(0.5, geo.originY).setDepth(pl.r * TILE);
       this.decoLayer.add(img);
-    };
-    placeRelief('relief_block',   relief.c - 2.6, relief.r - 1.3, 1.05);  // back mass
-    placeRelief('relief_plateau', relief.c + 0.2, relief.r,       1.18);  // main plateau
-    placeRelief('relief_ramp',    relief.c - 0.4, relief.r + 2.3, 1.02);  // access ramp (front)
+    });
 
     const isLand = (col, row) =>
       col >= 0 && col < COLS && row >= 1 && row < this.water[col] - 2 &&
-      !onRelief(col, row) && !inMarble(col, row);
+      !onPlateau(col, row) && !inMarble(col, row);
 
     const addDeco = (key, col, row) => {
       const x = col * TILE + TILE / 2 + (r() - 0.5) * 18;
@@ -156,13 +149,11 @@ export default class GameScene extends Phaser.Scene {
     };
 
     // ── ZONES ──
-    // Two timber forests on the open plains, well clear of the relief.
-    cluster(['cypress', 'olive', 'olive', 'cypress', 'shrub'], COLS * 0.78, ROWS * 0.44, 6, 50);
-    cluster(['olive', 'cypress', 'cypress', 'olive', 'shrub'], COLS * 0.34, ROWS * 0.74, 5, 40);
+    cluster(['cypress', 'olive', 'olive', 'cypress', 'shrub'], COLS * 0.15, ROWS * 0.58, 6, 52);
+    cluster(['olive', 'cypress', 'cypress', 'olive', 'shrub'], COLS * 0.72, ROWS * 0.66, 5, 42);
 
-    // loose boulders skirting the foot of the relief massif
-    cluster(['rock', 'shrub'], relief.c + 1, relief.r + 4, 3, 7);
-    cluster(['rock', 'shrub'], relief.c - 5, relief.r + 2, 2.5, 5);
+    // loose scree at the foot of each plateau
+    plateaus.forEach(pl => cluster(['rock', 'shrub'], pl.c, pl.r + pl.rad * 0.65, 3.5, 7));
 
     // ── meadow flowers across the open plains ──
     const flowers = ['flower_poppy', 'flower_lav', 'flower_daisy'];
