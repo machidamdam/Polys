@@ -1,5 +1,5 @@
-import MenuScene from './scenes/MenuScene.js?v=25';
-import IsoScene  from './scenes/IsoScene.js?v=25';
+import MenuScene from './scenes/MenuScene.js?v=26';
+import IsoScene  from './scenes/IsoScene.js?v=26';
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
