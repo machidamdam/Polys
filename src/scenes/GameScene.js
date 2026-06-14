@@ -1,4 +1,4 @@
-import { TILE, generateTextures, makeHighlandCliff } from '../utils/PixelArtGen.js?v=19';
+import { TILE, generateTextures, makeHighlandCliff, highlandMask } from '../utils/PixelArtGen.js?v=20';
 
 const COLS = 36;
 const ROWS = 52;
@@ -70,30 +70,22 @@ export default class GameScene extends Phaser.Scene {
     return Math.round(Phaser.Math.Clamp(base - bay + wob, 6, ROWS - 1));
   }
 
-  // Highland boundary: the elevated north region drops to lowland along this
-  // irregular line. Rows ABOVE (smaller) the line are the raised highland.
-  highlandEdge(col) {
-    const base = ROWS * 0.34;
-    const wob = 2.4 * Math.sin(col * 0.32 + 0.6) + 1.4 * Math.sin(col * 0.17 + 2.1);
-    // the highland reaches further south on the left, receding on the right
-    const tilt = -2.5 * Math.cos(col / COLS * Math.PI);
-    return Math.round(Phaser.Math.Clamp(base + wob + tilt, 4, ROWS * 0.5));
-  }
-
   buildMap() {
     const r = rng(SEED);
     this.water = [];
     for (let c = 0; c < COLS; c++) this.water[c] = this.waterLevel(c);
 
-    // ── HIGHLAND — a large elevated region across the north of the island ──
-    this.edge = [];
-    for (let c = 0; c < COLS; c++) this.edge[c] = this.highlandEdge(c);
-    // 3 ramps cut through the cliff (the only walkable ways up), 2 tiles wide
-    const rampCenters = [Math.round(COLS * 0.18), Math.round(COLS * 0.50), Math.round(COLS * 0.80)];
-    this.rampCols = [];
-    for (let c = 0; c < COLS; c++)
-      this.rampCols[c] = rampCenters.some(rc => Math.abs(c - rc) <= 1);
-    const onCliff = (col, row) => Math.abs(row - this.edge[col]) <= 1;
+    // ── HIGHLAND — a large raised region anchored in the NW corner ──
+    // ellipse hugging the top-left; its SE arc is the cliff edge to the lowland
+    const region = { cx: COLS * 0.04, cy: -ROWS * 0.06,
+                     Rx: COLS * 0.62, Ry: ROWS * 0.46, ph: [0.7, 2.3, 4.1] };
+    const { isHi } = highlandMask(region);
+    // ramps (boundary angles, radians) cut through the cliff: the only ways up
+    const ramps = [0.32, 0.86, 1.30];
+    // a tile is on the rocky cliff band if the highland state flips next to it
+    const onCliff = (col, row) =>
+      isHi(col, row) !== isHi(col + 1, row) || isHi(col, row) !== isHi(col, row + 1) ||
+      isHi(col, row) !== isHi(col - 1, row) || isHi(col, row) !== isHi(col, row - 1);
 
     // marble deposit: a flat whitish-grey rock patch in the grassland (Zeus)
     const marble = { c: COLS * 0.30, r: ROWS * 0.64, rad: 3.4 };
@@ -126,10 +118,12 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // ── HIGHLAND CLIFF — one big sprite separating raised north from lowland ──
-    const geo = makeHighlandCliff(this, 'highland', this.edge, this.rampCols, SEED + 777);
-    const cliff = this.add.image(0, geo.top, 'highland').setOrigin(0, 0);
-    cliff.setDepth(geo.baseDepth);   // lowland trees south of it overlap in front
+    // ── HIGHLAND CLIFF — one sprite: the rocky wall wrapping the raised corner ──
+    makeHighlandCliff(this, 'highland', COLS, ROWS, region, ramps, SEED + 777);
+    const cliff = this.add.image(0, 0, 'highland').setOrigin(0, 0);
+    // depth ≈ the cliff base: lowland trees (further south) overlap in front,
+    // highland trees (north of the wall) stay behind it
+    cliff.setDepth(Math.round((region.cy + region.Ry) * TILE + 30));
     this.decoLayer.add(cliff);
 
     const isLand = (col, row) =>
@@ -159,16 +153,14 @@ export default class GameScene extends Phaser.Scene {
     };
 
     // ── ZONES ──
-    // Forests → timber: one big one in the lowland plains, one up on the highland.
-    cluster(['cypress', 'olive', 'olive', 'cypress', 'shrub'], COLS * 0.20, ROWS * 0.56, 6, 54);
-    cluster(['olive', 'cypress', 'cypress', 'olive', 'shrub'], COLS * 0.78, ROWS * 0.66, 5, 40);
-    cluster(['cypress', 'olive', 'cypress', 'shrub'],          COLS * 0.62, ROWS * 0.16, 5, 30);
+    // Forests → timber: two in the lowland plains, one up on the highland.
+    cluster(['cypress', 'olive', 'olive', 'cypress', 'shrub'], COLS * 0.78, ROWS * 0.40, 6, 48);
+    cluster(['olive', 'cypress', 'cypress', 'olive', 'shrub'], COLS * 0.30, ROWS * 0.74, 5, 40);
+    cluster(['cypress', 'olive', 'cypress', 'shrub'],          COLS * 0.30, ROWS * 0.14, 5, 30);
 
-    // loose boulders / scree spilling from the cliff base into the lowland
-    for (let c = 4; c < COLS - 4; c += 7) {
-      if (this.rampCols[c]) continue;
-      cluster(['rock', 'shrub'], c, this.edge[c] + 2.5, 2.5, 4);
-    }
+    // a few loose boulders spilling into the lowland near the cliff base
+    cluster(['rock', 'shrub'], COLS * 0.46, ROWS * 0.30, 4, 7);
+    cluster(['rock', 'shrub'], COLS * 0.10, ROWS * 0.48, 3, 5);
 
     // ── meadow flowers across the open plains ──
     const flowers = ['flower_poppy', 'flower_lav', 'flower_daisy'];
