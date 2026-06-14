@@ -1,14 +1,13 @@
-import MenuScene    from './scenes/MenuScene.js?v=27';
-import TopDownScene from './scenes/TopDownScene.js?v=27';
+import MenuScene    from './scenes/MenuScene.js?v=28';
+import TopDownScene from './scenes/TopDownScene.js?v=28';
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   width: window.innerWidth,
   height: window.innerHeight,
-  backgroundColor: '#3a5c1e',   // dark grass — no gaps visible even at seams
-  pixelArt: true,               // nearest-neighbour scaling = crisp pixels
-  antialias: false,
-  roundPixels: true,
+  backgroundColor: '#3a5c1e',   // dark grass colour — any sub-pixel gap is invisible
+  pixelArt: false,              // grass_seamless is a smooth texture, not pixel art
+  roundPixels: true,            // snap world positions to integer px → no sub-px bleed
   scene: [MenuScene, TopDownScene],
   scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH },
   input: { touch: true },
